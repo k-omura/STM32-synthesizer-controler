@@ -1,21 +1,21 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file            : usb_host.c
-  * @version         : v1.0_Cube
-  * @brief           : This file implements the USB Host
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2022 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file            : usb_host.c
+ * @version         : v1.0_Cube
+ * @brief           : This file implements the USB Host
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2022 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
@@ -26,10 +26,11 @@
 
 /* USER CODE BEGIN Includes */
 
-//#include "stdio.h"
-//#include "string.h"
+// #include "stdio.h"
+// #include "string.h"
+#include "app_midi_middleware.h"
 #include "usbh_MIDI.h"
-#include "stm32_synth_midi.h"
+#include "io_midi_types.h"
 /* USER CODE END Includes */
 
 /* USER CODE BEGIN PV */
@@ -37,7 +38,6 @@
 #define RX_BUFF_SIZE 256 /* USB MIDI buffer : max received data 256 bytes */
 extern ApplicationTypeDef Appli_state;
 uint8_t MIDI_RX_Buffer[RX_BUFF_SIZE]; // MIDI reception buffer
-
 
 /* USER CODE END PV */
 
@@ -55,70 +55,75 @@ ApplicationTypeDef Appli_state = APPLICATION_IDLE;
  */
 /* USER CODE BEGIN 0 */
 
-void MIDI_Application(){
-	switch(Appli_state) {
-		case APPLICATION_DISCONNECT:
-			USBH_MIDI_Stop(&hUsbHostFS);
-			HAL_GPIO_WritePin(GPIOC, BOARD_LED_Pin, GPIO_PIN_SET);
-			Appli_state = APPLICATION_IDLE;
-			break;
+void MIDI_Application()
+{
+  switch (Appli_state)
+  {
+  case APPLICATION_DISCONNECT:
+    USBH_MIDI_Stop(&hUsbHostFS);
+    HAL_GPIO_WritePin(GPIOC, BOARD_LED_Pin, GPIO_PIN_SET);
+    Appli_state = APPLICATION_IDLE;
+    break;
 
-		case APPLICATION_READY:
-			USBH_MIDI_Receive(&hUsbHostFS, MIDI_RX_Buffer, RX_BUFF_SIZE);
-			HAL_GPIO_WritePin(GPIOC, BOARD_LED_Pin, GPIO_PIN_RESET);
-			Appli_state = APPLICATION_IDLE;
-			break;
+  case APPLICATION_READY:
+    USBH_MIDI_Receive(&hUsbHostFS, MIDI_RX_Buffer, RX_BUFF_SIZE);
+    HAL_GPIO_WritePin(GPIOC, BOARD_LED_Pin, GPIO_PIN_RESET);
+    Appli_state = APPLICATION_IDLE;
+    break;
 
-		case APPLICATION_START:
-			HAL_GPIO_WritePin(GPIOC, BOARD_LED_Pin, GPIO_PIN_RESET);
-			HAL_Delay(100);
-			HAL_GPIO_WritePin(GPIOC, BOARD_LED_Pin, GPIO_PIN_SET);
-			Appli_state = APPLICATION_IDLE;
-			break;
+  case APPLICATION_START:
+    HAL_GPIO_WritePin(GPIOC, BOARD_LED_Pin, GPIO_PIN_RESET);
+    HAL_Delay(100);
+    HAL_GPIO_WritePin(GPIOC, BOARD_LED_Pin, GPIO_PIN_SET);
+    Appli_state = APPLICATION_IDLE;
+    break;
 
-		default:
-			break;
-	}
+  default:
+    break;
+  }
 }
 
-void USBH_MIDI_ReceiveCallback(USBH_HandleTypeDef *phost){
-	ProcessReceivedMidiDatas();
-	USBH_MIDI_Receive(&hUsbHostFS, MIDI_RX_Buffer, RX_BUFF_SIZE); // start a new reception
+void USBH_MIDI_ReceiveCallback(USBH_HandleTypeDef *phost)
+{
+  ProcessReceivedMidiDatas();
+  USBH_MIDI_Receive(&hUsbHostFS, MIDI_RX_Buffer, RX_BUFF_SIZE); // start a new reception
 }
 
-void ProcessReceivedMidiDatas(void){
-	uint32_t numberOfPackets;
-	uint8_t *ptr = MIDI_RX_Buffer;
+void ProcessReceivedMidiDatas(void)
+{
+  uint32_t numberOfPackets;
+  uint8_t *ptr = MIDI_RX_Buffer;
 
-	numberOfPackets = USBH_MIDI_GetLastReceivedDataSize(&hUsbHostFS) / 4; //each USB midi package is 4 bytes long
+  numberOfPackets = USBH_MIDI_GetLastReceivedDataSize(&hUsbHostFS) / 4; // each USB midi package is 4 bytes long
 
-	while (numberOfPackets--){
-		uint8_t evnt0 = *(ptr + 1);
-		evnt0 &= 0xF0;
-		evnt0 >>= 4;
-		switch(evnt0)
-		{
-			case STM32SYNTH_MIDIEVT0_NOTEOFF:
-			case STM32SYNTH_MIDIEVT0_NOTEON:
-			case STM32SYNTH_MIDIEVT0_AFTERTOUCH:
-			case STM32SYNTH_MIDIEVT0_CONTROLCHANGE:
-			case STM32SYNTH_MIDIEVT0_PROGRAMCHANGE:
-			case STM32SYNTH_MIDIEVT0_CHANNELAFTERTOUCH:
-			case STM32SYNTH_MIDIEVT0_PITCHBEND:
-			{
-				/*
-				*(ptr + 1) &= 0xF0; // clear the channel bits
-				*(ptr + 1) |= 0x01; // set the channel to 1 (MIDI channel 2)
-				*/
-				stm32synth_midi_writebuff(ptr);
-				break;
-			}
-			default:
-				break;
-		}
+  while (numberOfPackets--)
+  {
+    uint8_t evnt0 = *(ptr + 1);
+    evnt0 &= 0xF0;
+    evnt0 >>= 4;
+    switch (evnt0)
+    {
+    case STM32SYNTH_MIDIEVT0_NOTEOFF:
+    case STM32SYNTH_MIDIEVT0_NOTEON:
+    case STM32SYNTH_MIDIEVT0_AFTERTOUCH:
+    case STM32SYNTH_MIDIEVT0_CONTROLCHANGE:
+    case STM32SYNTH_MIDIEVT0_PROGRAMCHANGE:
+    case STM32SYNTH_MIDIEVT0_CHANNELAFTERTOUCH:
+    case STM32SYNTH_MIDIEVT0_PITCHBEND:
+    {
+      /*
+       *(ptr + 1) &= 0xF0; // clear the channel bits
+       *(ptr + 1) |= 0x01; // set the channel to 1 (MIDI channel 2)
+       */
+      stm32synth_midi_writebuff(ptr);
+      break;
+    }
+    default:
+      break;
+    }
 
-		ptr += 4;
-	}
+    ptr += 4;
+  }
 }
 
 /* USER CODE END 0 */
@@ -192,27 +197,27 @@ void MX_USB_HOST_Process(void)
 static void USBH_UserProcess  (USBH_HandleTypeDef *phost, uint8_t id)
 {
   /* USER CODE BEGIN CALL_BACK_1 */
-  switch(id)
+  switch (id)
   {
   case HOST_USER_SELECT_CONFIGURATION:
-  break;
+    break;
 
   case HOST_USER_DISCONNECTION:
-  //HAL_GPIO_WritePin(BOARD_LED_GPIO_Port, BOARD_LED_Pin, GPIO_PIN_SET);
-  Appli_state = APPLICATION_DISCONNECT;
-  break;
+    // HAL_GPIO_WritePin(BOARD_LED_GPIO_Port, BOARD_LED_Pin, GPIO_PIN_SET);
+    Appli_state = APPLICATION_DISCONNECT;
+    break;
 
   case HOST_USER_CLASS_ACTIVE:
-  Appli_state = APPLICATION_READY;
-  break;
+    Appli_state = APPLICATION_READY;
+    break;
 
   case HOST_USER_CONNECTION:
-  //HAL_GPIO_WritePin(BOARD_LED_GPIO_Port, BOARD_LED_Pin, GPIO_PIN_RESET);
-  Appli_state = APPLICATION_START;
-  break;
+    // HAL_GPIO_WritePin(BOARD_LED_GPIO_Port, BOARD_LED_Pin, GPIO_PIN_RESET);
+    Appli_state = APPLICATION_START;
+    break;
 
   default:
-  break;
+    break;
   }
   /* USER CODE END CALL_BACK_1 */
 }

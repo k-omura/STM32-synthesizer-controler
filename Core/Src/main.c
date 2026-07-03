@@ -23,8 +23,20 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stdio.h"
-#include "stm32_synth_midi.h"
-#include "mode.h"
+#include "app_midi_middleware.h"
+#include "io_system_control.h"
+
+/* New architecture includes */
+#include "app_runtime.h"
+#include "app_event.h"
+#include "io_input_adapter.h"
+#include "io_display_renderer.h"
+#include "io_display_driver.h"
+#include "io_input_driver.h"
+#include "io_midi_transport.h"
+#include "domain_display_model.h"
+#include "domain_metronome_engine.h"
+#include "domain_midi_state.h"
 
 /* USER CODE END Includes */
 
@@ -75,7 +87,7 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
 {
   if (hspi == &hspi5)
   {
-    stm32synth_midi_writebuff(spi_controler_rx);
+    io_midi_transport_push_rx_packet(spi_controler_rx);
     HAL_SPI_Receive_DMA(&hspi5, spi_controler_rx, 4);
   }
 }
@@ -84,7 +96,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim == &htim11)
   {
-    re_tim_callback();
+    io_input_driver_timer_callback();
+    io_input_driver_handle(HAL_GetTick());
   }
 
   return;
@@ -92,15 +105,17 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-  re_exti_callback(GPIO_Pin);
+  io_input_driver_exti_callback(GPIO_Pin);
+  io_input_adapter_on_exti(GPIO_Pin, HAL_GetTick());
   return;
 }
+
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
 
@@ -134,30 +149,41 @@ int main(void)
   MX_SPI3_Init();
   /* USER CODE BEGIN 2 */
 
+  /* Initialize I/O drivers */
+  uint8_t led_type = (HAL_GPIO_ReadPin(LED_TYPE_GPIO_Port, LED_TYPE_Pin) == GPIO_PIN_RESET) ? 1 : 0;
+  io_display_driver_init(&hspi2, led_type);
+  io_input_driver_init(led_type);
+  io_midi_transport_init();
+  io_midi_transport_bind_tx_spi(&hspi3);
+
+  /* Initialize new architecture */
+  app_runtime_init();
+  app_runtime_input_init();
+  io_input_adapter_init();
+  io_display_renderer_init(&hspi2);
+  domain_display_model_init();
+  domain_metronome_engine_init();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-  // Init RE settings
-  re_init();
   HAL_TIM_Base_Start_IT(&htim11);
 
-  // Initial MIDI BLE initiater/client switch
-  if(re_static_check(0) == 1)
+  /* Initial MIDI BLE initiater/client switch */
+  if (io_input_driver_btn_check(0) == 1)
   {
-	  // Switch to BLE INITIATOR mode
-	  HAL_GPIO_WritePin(bleInitMode_GPIO_Port, bleInitMode_Pin, GPIO_PIN_SET);
-	  HAL_Delay(1000);
-	  HAL_GPIO_WritePin(bleInitMode_GPIO_Port, bleInitMode_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(bleInitMode_GPIO_Port, bleInitMode_Pin, GPIO_PIN_SET);
+    HAL_Delay(1000);
+    HAL_GPIO_WritePin(bleInitMode_GPIO_Port, bleInitMode_Pin, GPIO_PIN_RESET);
   }
 
-  //init drum volume
-  //stm32synth_midi_volume(9, 15);
-  stm32synth_midi_mode(STM32SYNTH_MODECONTROL_CABLENUMFILTON); // Enable cIndex filter
-  
-  // Start MIDI Repeater
+  /* Start MIDI Repeater */
   HAL_SPI_Receive_DMA(&hspi5, spi_controler_rx, 4);
+
+  /* Start new application runtime */
+  app_runtime_start();
 
   while (1)
   {
@@ -167,32 +193,46 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     uint32_t tick = HAL_GetTick();
-    stm32synth_hundle(&hspi2, &hspi3, tick);
 
-    re_hundle(tick); // Handle rotary encoder and button events
+    /* Input events in runtime */
+    app_event_t input_event;
+    while (io_input_adapter_poll(&input_event))
+    {
+      app_runtime_post_event(&input_event);
+    }
 
-    // HAL_Delay(100);
+    /* Step application runtime */
+    app_runtime_step(tick);
+
+    /* Service MIDI transport */
+    io_midi_transport_service();
+
+    /* Render display */
+    domain_display_model_t display_model;
+    domain_display_model_get_current(&display_model);
+    io_display_renderer_render(&display_model);
+    io_display_renderer_flush();
   }
   /* USER CODE END 3 */
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage
-  */
+   */
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -207,9 +247,8 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -222,10 +261,10 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief SPI2 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief SPI2 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_SPI2_Init(void)
 {
 
@@ -256,14 +295,13 @@ static void MX_SPI2_Init(void)
   /* USER CODE BEGIN SPI2_Init 2 */
 
   /* USER CODE END SPI2_Init 2 */
-
 }
 
 /**
-  * @brief SPI3 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief SPI3 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_SPI3_Init(void)
 {
 
@@ -294,14 +332,13 @@ static void MX_SPI3_Init(void)
   /* USER CODE BEGIN SPI3_Init 2 */
 
   /* USER CODE END SPI3_Init 2 */
-
 }
 
 /**
-  * @brief SPI5 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief SPI5 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_SPI5_Init(void)
 {
 
@@ -331,14 +368,13 @@ static void MX_SPI5_Init(void)
   /* USER CODE BEGIN SPI5_Init 2 */
 
   /* USER CODE END SPI5_Init 2 */
-
 }
 
 /**
-  * @brief TIM11 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief TIM11 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_TIM11_Init(void)
 {
 
@@ -362,12 +398,11 @@ static void MX_TIM11_Init(void)
   /* USER CODE BEGIN TIM11_Init 2 */
 
   /* USER CODE END TIM11_Init 2 */
-
 }
 
 /**
-  * Enable DMA controller clock
-  */
+ * Enable DMA controller clock
+ */
 static void MX_DMA_Init(void)
 {
 
@@ -385,14 +420,13 @@ static void MX_DMA_Init(void)
   /* DMA2_Stream3_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA2_Stream3_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA2_Stream3_IRQn);
-
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -462,7 +496,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(RE2_BTN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : RE2_P1_Pin RE2_P2_Pin */
-  GPIO_InitStruct.Pin = RE2_P1_Pin|RE2_P2_Pin;
+  GPIO_InitStruct.Pin = RE2_P1_Pin | RE2_P2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -486,9 +520,9 @@ static void MX_GPIO_Init(void)
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -501,12 +535,12 @@ void Error_Handler(void)
 }
 #ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
