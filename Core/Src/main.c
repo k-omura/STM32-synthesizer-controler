@@ -23,7 +23,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stdio.h"
-#include "app_midi_middleware.h"
 #include "io_system_control.h"
 
 /* New architecture includes */
@@ -35,8 +34,6 @@
 #include "io_input_driver.h"
 #include "io_midi_transport.h"
 #include "domain_display_model.h"
-#include "domain_metronome_engine.h"
-#include "domain_midi_state.h"
 
 /* USER CODE END Includes */
 
@@ -162,7 +159,6 @@ int main(void)
   io_input_adapter_init();
   io_display_renderer_init(&hspi2);
   domain_display_model_init();
-  domain_metronome_engine_init();
 
   /* USER CODE END 2 */
 

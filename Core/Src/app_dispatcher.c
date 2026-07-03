@@ -8,9 +8,34 @@
  */
 
 #include "app_dispatcher.h"
+#include "app_runtime.h"
 
-#include "app_transition.h"
+#include "app_node_id.h"
 #include "domain_mode_def.h"
+#include "io_midi_types.h"
+
+static uint8_t app_dispatcher_is_valid_node(uint16_t node)
+{
+    switch (node)
+    {
+    case APP_NODE_ID_NONE:
+    case APP_NODE_ID_RE1_MODE:
+    case APP_NODE_ID_RE1_VOLUME:
+    case APP_NODE_ID_RE1_PROGRAM:
+    case APP_NODE_ID_RE2_CHANNEL:
+    case APP_NODE_ID_RE2_REVERB:
+        return 1U;
+    default:
+        break;
+    }
+
+    if (node <= 2U)
+    {
+        return 1U;
+    }
+
+    return 0U;
+}
 
 /**
  * @brief Handles an incoming event by dispatching it to the appropriate mode handler based on the current runtime context. This function retrieves the current mode definition and calls its `on_event` handler if it exists. After processing the event, it resolves any potential mode or node transitions that may have been triggered by the event.
@@ -45,7 +70,19 @@ void app_dispatcher_handle_event(const app_runtime_context_t *ctx, const app_eve
         mode_def->on_event((void *)ctx, ev, out_cmds, out_count);
     }
 
-    app_transition_resolve(ctx, ev, &next_mode, &next_node);
+    if ((ev->source == APP_INPUT_SOURCE_SYSTEM) &&
+        (ev->type == EV_SYSTEM_MODE_CHANGE) &&
+        (ev->code < IO_MIDI_MODE_STATE_COUNT))
+    {
+        next_mode = (app_mode_state_t)ev->code;
+    }
+
+    if ((ev->source == APP_INPUT_SOURCE_SYSTEM) &&
+        (ev->type == EV_SYSTEM_NODE_CHANGE) &&
+        (app_dispatcher_is_valid_node(ev->code) != 0U))
+    {
+        next_node = ev->code;
+    }
 
     if ((next_mode != ctx->current_mode) && (*out_count < APP_COMMAND_BUFFER_CAPACITY))
     {

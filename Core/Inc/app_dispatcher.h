@@ -11,8 +11,9 @@
 #define APP_DISPATCHER_H
 
 #include <stdint.h>
-#include "app_runtime.h"
-#include "domain_mode_def.h"
+#include "app_event.h"
+
+typedef struct app_runtime_context app_runtime_context_t;
 
 void app_dispatcher_handle_event(const app_runtime_context_t *ctx, const app_event_t *ev, app_command_t *out_cmds, uint8_t *out_count);
 void app_dispatcher_handle_tick(const app_runtime_context_t *ctx, uint32_t now_tick, app_command_t *out_cmds, uint8_t *out_count);

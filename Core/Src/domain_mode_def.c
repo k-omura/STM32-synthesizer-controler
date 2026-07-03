@@ -7,8 +7,10 @@
  */
 
 #include "domain_mode_def.h"
-#include "app_runtime.h"
 #include "io_midi_types.h"
+
+/* Keep in sync with APP_COMMAND_BUFFER_CAPACITY without depending on app layer. */
+#define DOMAIN_MODE_COMMAND_CAPACITY 16U
 
 static void domain_mode_push_display(domain_display_state_t display, app_command_t *out_cmds, uint8_t *out_count)
 {
@@ -17,13 +19,13 @@ static void domain_mode_push_display(domain_display_state_t display, app_command
         return;
     }
 
-    if (*out_count >= APP_COMMAND_BUFFER_CAPACITY)
+    if (*out_count >= DOMAIN_MODE_COMMAND_CAPACITY)
     {
         return;
     }
 
     out_cmds[*out_count].type = CMD_DISPLAY_UPDATE;
-    out_cmds[*out_count].payload.display = display;
+    out_cmds[*out_count].payload.display = (app_display_state_t)display;
     (*out_count)++;
 }
 

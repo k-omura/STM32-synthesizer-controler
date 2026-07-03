@@ -28,9 +28,9 @@
 
 // #include "stdio.h"
 // #include "string.h"
-#include "app_midi_middleware.h"
 #include "usbh_MIDI.h"
 #include "io_midi_types.h"
+#include "io_midi_transport.h"
 /* USER CODE END Includes */
 
 /* USER CODE BEGIN PV */
@@ -115,7 +115,7 @@ void ProcessReceivedMidiDatas(void)
        *(ptr + 1) &= 0xF0; // clear the channel bits
        *(ptr + 1) |= 0x01; // set the channel to 1 (MIDI channel 2)
        */
-      stm32synth_midi_writebuff(ptr);
+      io_midi_transport_send_packet(ptr);
       break;
     }
     default:
@@ -141,9 +141,9 @@ static void USBH_UserProcess(USBH_HandleTypeDef *phost, uint8_t id);
 /* USER CODE END 1 */
 
 /**
-  * Init USB host library, add supported class and start the library
-  * @retval None
-  */
+ * Init USB host library, add supported class and start the library
+ * @retval None
+ */
 void MX_USB_HOST_Init(void)
 {
   /* USER CODE BEGIN USB_HOST_Init_PreTreatment */
@@ -194,7 +194,7 @@ void MX_USB_HOST_Process(void)
 /*
  * user callback definition
  */
-static void USBH_UserProcess  (USBH_HandleTypeDef *phost, uint8_t id)
+static void USBH_UserProcess(USBH_HandleTypeDef *phost, uint8_t id)
 {
   /* USER CODE BEGIN CALL_BACK_1 */
   switch (id)
@@ -223,10 +223,9 @@ static void USBH_UserProcess  (USBH_HandleTypeDef *phost, uint8_t id)
 }
 
 /**
-  * @}
-  */
+ * @}
+ */
 
 /**
-  * @}
-  */
-
+ * @}
+ */

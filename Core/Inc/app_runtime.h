@@ -11,14 +11,15 @@
 #define APP_RUNTIME_H
 
 #include <stdint.h>
-#include "app_event.h"
+
+typedef struct app_event app_event_t;
 
 #define APP_EVENT_QUEUE_CAPACITY (32)    //!< Capacity of the event queue
 #define APP_COMMAND_BUFFER_CAPACITY (16) //!< Capacity of the command buffer
 
-typedef struct
+typedef struct app_runtime_context
 {
-    app_mode_state_t current_mode;
+    uint8_t current_mode;
     uint16_t current_node;
     uint32_t now_tick;
 } app_runtime_context_t;

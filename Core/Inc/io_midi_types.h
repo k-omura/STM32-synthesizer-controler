@@ -14,17 +14,17 @@
 #include "main.h"
 
 /* MIDI Buffer Configuration */
-#define IO_MIDI_MIDIBUFF_SIZE (256)
-#define IO_MIDI_DRUMCH (9)
-#define IO_MIDI_LOWESTDRUM (35)
+#define IO_MIDI_MIDIBUFF_SIZE (256) //!< Size of the MIDI buffer for incoming and outgoing messages
+#define IO_MIDI_DRUMCH (9)          //!< Default MIDI channel for drum sounds (channel 10 in 1-based indexing)
+#define IO_MIDI_LOWESTDRUM (35)     //!< Lowest MIDI note number for drum sounds
 
 /* Timing & Sequencer Configuration */
-#define IO_MIDI_DEFAULT_BPM (120)
-#define IO_MIDI_DEFAULT_BPM_MAX (360)
-#define IO_MIDI_DEFAULT_BPM_MIN (30)
-#define IO_MIDI_SEQUENCER_MAXBAR (16)
-#define IO_MIDI_SEQUENCER_MAXCHORDPARBAR (80)
-#define IO_MIDI_SEQUENCER_RECTIMERESOLUTION (4095)
+#define IO_MIDI_DEFAULT_BPM (120)                  //!< Default beats per minute for the sequencer
+#define IO_MIDI_DEFAULT_BPM_MAX (360)              //!< Maximum beats per minute for the sequencer
+#define IO_MIDI_DEFAULT_BPM_MIN (30)               //!< Minimum beats per minute for the sequencer
+#define IO_MIDI_SEQUENCER_MAXBAR (16)              //!< Maximum number of bars in the sequencer
+#define IO_MIDI_SEQUENCER_MAXCHORDPARBAR (80)      //!< Maximum number of chord parameters per bar in the sequencer
+#define IO_MIDI_SEQUENCER_RECTIMERESOLUTION (4095) //!< Resolution of the sequencer's real-time clock timer
 
 /* Result Status */
 typedef enum

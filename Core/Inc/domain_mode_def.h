@@ -12,6 +12,7 @@
 
 #include <stdint.h>
 #include "app_event.h"
+#include "domain_display_model.h"
 
 typedef enum
 {

@@ -12,7 +12,6 @@
 /* ===== Color Definitions ===== */
 const app_midi_color_t APP_MIDI_COLOR_RESET = {0, 0, 0};
 const app_midi_color_t APP_MIDI_COLOR_STRING = {8, 8, 8};
-const app_midi_color_t APP_MIDI_COLOR_NEEDLE = {10, 0, 2};
 const app_midi_color_t APP_MIDI_COLOR_BLE = {0, 0, 10};
 const app_midi_color_t APP_MIDI_COLOR_BAR_ALL = {6, 3, 3};
 const app_midi_color_t APP_MIDI_COLOR_CURSORX = {2, 2, 2};
@@ -32,17 +31,6 @@ const app_midi_color_t APP_MIDI_COLOR_SEL_RECNOTE[8] = {
     {20, 4, 20},
     {20, 12, 0},
     {0, 12, 20},
-};
-
-/* ===== Event Type Text ===== */
-const char stm32synth_evt_text[][3] = {
-    "NTF", // STM32SYNTH_MIDIEVT0_NOTEOFF
-    "NTO", // STM32SYNTH_MIDIEVT0_NOTEON
-    "AFT", // STM32SYNTH_MIDIEVT0_AFTERTOUCH
-    "CCH", // STM32SYNTH_MIDIEVT0_CONTROLCHANGE
-    "PCH", // STM32SYNTH_MIDIEVT0_PROGRAMCHANGE
-    "CAF", // STM32SYNTH_MIDIEVT0_CHANNELAFTERTOUCH
-    "PBE", // STM32SYNTH_MIDIEVT0_PITCHBEND
 };
 
 /* ===== Control Change Text (103 entries) ===== */
