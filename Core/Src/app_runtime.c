@@ -33,6 +33,9 @@
 #define APP_MIDI_CHANNEL_ALL APP_MIDI_CHANNEL_COUNT                                                              //!< Special value representing all MIDI channels
 #define APP_OVERLAY_TIMEOUT_MS 1000U                                                                             //!< Timeout duration for overlay display in milliseconds
 #define APP_SEQ_PARA_ENCODE(kind, val) (uint16_t)((((uint16_t)(kind) & 0x7U) << 9) | ((uint16_t)(val) & 0x1FFU)) //!< Macro to encode sequencer parameter kind and value into a single 16-bit value
+#define APP_SEQ_PROGRAM_DEFAULT_NOTE 60U
+#define APP_SEQ_PROGRAM_PREVIEW_MS 100U
+#define APP_SEQ_PROGRAM_NOTE_VELOCITY 100U
 
 typedef enum
 {
@@ -98,6 +101,12 @@ static app_mode_config_state_t g_mode_cfg;
 static app_runtime_state_t g_runtime_state;
 static uint8_t g_seqinput_rec_in_bar;
 static uint8_t g_seqinput_last_bar;
+static uint8_t g_seqprogram_note;
+static uint8_t g_seqprogram_preview_active;
+static uint8_t g_seqprogram_preview_note;
+static uint32_t g_seqprogram_preview_off_tick;
+static uint8_t g_seqprogram_hold_active;
+static uint8_t g_seqprogram_hold_note;
 
 #define g_current_mode (g_runtime_state.current_mode)               //!< Macro to access the current mode from the runtime state
 #define g_last_tap_tick (g_runtime_state.last_tap_tick)             //!< Macro to access the last tap tick from the runtime state
@@ -137,14 +146,16 @@ static const app_runtime_mode_action_entry_t g_re2_button_modeparam_actions[] = 
 };
 
 static const app_runtime_mode_action_entry_t g_re2_long_press_actions[] = {
-    {IO_MIDI_MODE_STATE_SEQUENCER_INPUT, app_runtime_handle_re2_long_press_seqinput},
+    {IO_MIDI_MODE_STATE_SEQUENCER_REC, app_runtime_handle_re2_long_press_seqinput},
     {IO_MIDI_MODE_STATE_SETTING, app_runtime_handle_re2_long_press_setting},
     {IO_MIDI_MODE_STATE_SEQUENCER_PLAY, app_runtime_handle_re2_long_press_seqplay},
 };
 
 static void app_runtime_send_cc(uint8_t channel, uint8_t cc, uint8_t value);
+static void app_runtime_send_all_notes_off(void);
 static void app_runtime_send_volume(uint8_t channel, uint8_t volume);
 static void app_runtime_send_program(uint8_t channel, uint8_t program);
+static void app_runtime_send_note(uint8_t channel, uint8_t note, uint8_t velocity, uint8_t is_note_on);
 static void app_runtime_request_mode_change(uint8_t new_mode, uint32_t now_tick);
 static void app_runtime_request_node_change(uint16_t new_node, uint32_t now_tick);
 static uint16_t app_runtime_re1_ctrl_to_node(uint8_t ctrl);
@@ -170,6 +181,7 @@ static uint8_t app_runtime_handle_re2_rotate_normal(const app_event_t *ev);
 static uint8_t app_runtime_handle_re2_button_special_mode(const app_event_t *ev, uint8_t effective_mode);
 static uint8_t app_runtime_handle_re2_button_modeparam(const app_event_t *ev, uint8_t effective_mode);
 static uint8_t app_runtime_handle_re2_button_normal(const app_event_t *ev);
+static uint8_t app_runtime_handle_re2_button_up_program(const app_event_t *ev, uint8_t effective_mode);
 static uint8_t app_runtime_handle_re2_button_modeparam_metronome(const app_event_t *ev);
 static uint8_t app_runtime_handle_re2_button_modeparam_seqpara(const app_event_t *ev);
 static uint8_t app_runtime_handle_re2_long_press(const app_event_t *ev, uint8_t effective_mode);
@@ -183,6 +195,14 @@ static void app_runtime_enter_dfu_with_overlay(uint32_t now_tick);
 static void app_runtime_show_overlay(uint16_t msg_type, uint16_t value, uint32_t now_tick);
 static void app_runtime_show_overlay_midi_rx(uint16_t msg_type, uint16_t value, uint32_t now_tick, uint8_t midi_msg_type, uint8_t channel, uint8_t data1, uint8_t data2);
 static void app_runtime_update_seqinput_auto_advance(void);
+static void app_runtime_seqprogram_stop_preview(void);
+static void app_runtime_seqprogram_start_preview(uint32_t now_tick);
+static uint8_t app_runtime_seqprogram_get_target_bar(uint8_t *out_bar);
+static void app_runtime_seqprogram_handle_button_down(uint32_t now_tick);
+static void app_runtime_seqprogram_handle_button_up(uint32_t now_tick);
+static void app_runtime_process_seqprogram_preview(uint32_t now_tick);
+static void app_runtime_seqprogram_abort_active_notes(void);
+static uint8_t app_runtime_is_sequencer_mode(uint8_t mode);
 
 static const app_input_router_handlers_t g_input_router_handlers = {
     .re1 = {
@@ -252,6 +272,12 @@ static void app_runtime_reset_default_state(void)
     g_overlay_expire_tick = 0;
     g_seqinput_rec_in_bar = 0U;
     g_seqinput_last_bar = 0U;
+    g_seqprogram_note = APP_SEQ_PROGRAM_DEFAULT_NOTE;
+    g_seqprogram_preview_active = 0U;
+    g_seqprogram_preview_note = APP_SEQ_PROGRAM_DEFAULT_NOTE;
+    g_seqprogram_preview_off_tick = 0U;
+    g_seqprogram_hold_active = 0U;
+    g_seqprogram_hold_note = APP_SEQ_PROGRAM_DEFAULT_NOTE;
     g_ctx.current_node = app_runtime_re1_ctrl_to_node(g_re1_ctrl);
 }
 
@@ -337,14 +363,17 @@ static void app_runtime_apply_seqinput_action(uint8_t input_action, uint8_t targ
     else if (input_action == 1U)
     {
         domain_sequencer_engine_clear_channel_in_bar(target_bar, (uint8_t)g_mode_cfg.seqpara_sel_channel);
+        app_runtime_send_all_notes_off();
     }
     else if (input_action == 2U)
     {
         domain_sequencer_engine_clear_bar(target_bar);
+        app_runtime_send_all_notes_off();
     }
     else
     {
         domain_sequencer_engine_clear_all();
+        app_runtime_send_all_notes_off();
     }
 }
 
@@ -405,7 +434,19 @@ static uint8_t app_runtime_dispatch_re2_rotate_modeparam(const app_event_t *ev, 
         return app_runtime_handle_seqpara_rotate(ev);
     }
 
-    if (effective_mode == IO_MIDI_MODE_STATE_SEQUENCER_INPUT)
+    if (effective_mode == IO_MIDI_MODE_STATE_SEQUENCER_PROGRAM)
+    {
+        uint16_t next_note = app_runtime_clamp_add_u16(g_seqprogram_note, ev->delta, 0U, 127U, 1U);
+
+        if (next_note != g_seqprogram_note)
+        {
+            g_seqprogram_note = (uint8_t)next_note;
+            app_runtime_seqprogram_start_preview(ev->tick);
+        }
+        return 1U;
+    }
+
+    if (effective_mode == IO_MIDI_MODE_STATE_SEQUENCER_REC)
     {
         uint16_t max_sel = (uint16_t)((g_mode_cfg.seqpara_bar * 4U) - 1U);
         uint8_t input_action = 0U;
@@ -430,6 +471,12 @@ static uint8_t app_runtime_dispatch_re2_rotate_modeparam(const app_event_t *ev, 
     return 1U;
 }
 
+/**
+ * @brief Handles the RE2 button press event for the metronome mode parameter. This function applies the tap tempo based on the event tick and shows the BPM overlay.
+ *
+ * @param ev Pointer to the app_event_t structure containing the event information.
+ * @return uint8_t Returns 1U to indicate successful handling of the event.
+ */
 static uint8_t app_runtime_handle_re2_button_modeparam_metronome(const app_event_t *ev)
 {
     app_runtime_apply_tap_tempo(ev->tick);
@@ -448,6 +495,7 @@ static uint8_t app_runtime_handle_re2_long_press_seqinput(const app_event_t *ev)
 {
     (void)ev;
     domain_sequencer_engine_clear_channel((uint8_t)g_mode_cfg.seqpara_sel_channel);
+    app_runtime_send_all_notes_off();
     return 1U;
 }
 
@@ -714,7 +762,8 @@ static void app_runtime_process_rx_midi(uint32_t now_tick)
         uint8_t msg_type = (uint8_t)(status & 0xF0U);
         uint8_t channel = (uint8_t)(status & 0x0FU);
         uint8_t is_seq_mode = (uint8_t)((g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_PARA) ||
-                                        (g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_INPUT) ||
+                                        (g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_PROGRAM) ||
+                                        (g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_REC) ||
                                         (g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_PLAY));
 
         if ((msg_type == IO_MIDI_EVT0_NOTEON) || (msg_type == IO_MIDI_EVT0_NOTEOFF))
@@ -724,7 +773,7 @@ static void app_runtime_process_rx_midi(uint32_t now_tick)
                 domain_display_model_set_midi_context(msg_type, channel, data1, data2, 1U);
             }
 
-            if (g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_INPUT)
+            if (g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_REC)
             {
                 const domain_sequencer_state_t *seq_state = domain_sequencer_engine_get_state();
                 uint16_t bar_len = (g_mode_cfg.seqpara_bar == 0U) ? 1U : g_mode_cfg.seqpara_bar;
@@ -817,7 +866,7 @@ static void app_runtime_update_seqinput_auto_advance(void)
         return;
     }
 
-    if ((g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_INPUT) && (g_seqinput_rec_in_bar != 0U))
+    if ((g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_PROGRAM) && (g_seqinput_rec_in_bar != 0U))
     {
         bar_len = (g_mode_cfg.seqpara_bar == 0U) ? 1U : g_mode_cfg.seqpara_bar;
         target_bar = (uint16_t)(g_mode_cfg.seqpara_sel_bar % bar_len);
@@ -832,6 +881,113 @@ static void app_runtime_update_seqinput_auto_advance(void)
     g_seqinput_last_bar = current_bar;
 }
 
+static void app_runtime_seqprogram_stop_preview(void)
+{
+    if (g_seqprogram_preview_active == 0U)
+    {
+        return;
+    }
+
+    app_runtime_send_note((uint8_t)g_mode_cfg.seqpara_sel_channel, g_seqprogram_preview_note, 0U, 0U);
+    g_seqprogram_preview_active = 0U;
+    g_seqprogram_preview_off_tick = 0U;
+}
+
+static void app_runtime_seqprogram_start_preview(uint32_t now_tick)
+{
+    app_runtime_seqprogram_stop_preview();
+    app_runtime_send_note((uint8_t)g_mode_cfg.seqpara_sel_channel, g_seqprogram_note, APP_SEQ_PROGRAM_NOTE_VELOCITY, 1U);
+    g_seqprogram_preview_note = g_seqprogram_note;
+    g_seqprogram_preview_active = 1U;
+    g_seqprogram_preview_off_tick = now_tick + APP_SEQ_PROGRAM_PREVIEW_MS;
+}
+
+static uint8_t app_runtime_seqprogram_get_target_bar(uint8_t *out_bar)
+{
+    const domain_sequencer_state_t *seq_state = domain_sequencer_engine_get_state();
+    uint16_t bar_len;
+    uint8_t target_bar;
+
+    if ((out_bar == 0) || (seq_state == 0) || (seq_state->playing == 0U))
+    {
+        return 0U;
+    }
+
+    bar_len = (g_mode_cfg.seqpara_bar == 0U) ? 1U : g_mode_cfg.seqpara_bar;
+    target_bar = (uint8_t)(g_mode_cfg.seqpara_sel_bar % bar_len);
+    if (target_bar != seq_state->bar_count)
+    {
+        return 0U;
+    }
+
+    *out_bar = target_bar;
+    return 1U;
+}
+
+static void app_runtime_seqprogram_handle_button_down(uint32_t now_tick)
+{
+    uint8_t target_bar;
+    uint8_t record_channel = (uint8_t)(g_mode_cfg.seqpara_sel_channel & 0x0FU);
+
+    app_runtime_seqprogram_stop_preview();
+    app_runtime_send_note(record_channel, g_seqprogram_note, APP_SEQ_PROGRAM_NOTE_VELOCITY, 1U);
+    g_seqprogram_hold_active = 1U;
+    g_seqprogram_hold_note = g_seqprogram_note;
+
+    if (app_runtime_seqprogram_get_target_bar(&target_bar) == 0U)
+    {
+        return;
+    }
+
+    if (g_seqinput_rec_in_bar == 0U)
+    {
+        domain_sequencer_engine_begin_record_layer(target_bar);
+    }
+    domain_sequencer_engine_record_note_on(target_bar, record_channel, g_seqprogram_note, APP_SEQ_PROGRAM_NOTE_VELOCITY, now_tick);
+    g_seqinput_rec_in_bar = 1U;
+}
+
+static void app_runtime_seqprogram_handle_button_up(uint32_t now_tick)
+{
+    uint8_t target_bar;
+    uint8_t record_channel = (uint8_t)(g_mode_cfg.seqpara_sel_channel & 0x0FU);
+
+    if (g_seqprogram_hold_active == 0U)
+    {
+        return;
+    }
+
+    app_runtime_send_note(record_channel, g_seqprogram_hold_note, 0U, 0U);
+    g_seqprogram_hold_active = 0U;
+
+    if (app_runtime_seqprogram_get_target_bar(&target_bar) == 0U)
+    {
+        return;
+    }
+
+    domain_sequencer_engine_record_note_off(target_bar, record_channel, g_seqprogram_hold_note, now_tick);
+}
+
+static void app_runtime_process_seqprogram_preview(uint32_t now_tick)
+{
+    if ((g_seqprogram_preview_active != 0U) && (now_tick >= g_seqprogram_preview_off_tick))
+    {
+        app_runtime_seqprogram_stop_preview();
+    }
+}
+
+static void app_runtime_seqprogram_abort_active_notes(void)
+{
+    uint8_t record_channel = (uint8_t)(g_mode_cfg.seqpara_sel_channel & 0x0FU);
+
+    app_runtime_seqprogram_stop_preview();
+    if (g_seqprogram_hold_active != 0U)
+    {
+        app_runtime_send_note(record_channel, g_seqprogram_hold_note, 0U, 0U);
+        g_seqprogram_hold_active = 0U;
+    }
+}
+
 /**
  * @brief Sends a Control Change message for a specific MIDI channel. This function updates a control parameter.
  * @param channel The MIDI channel to send the control change message.
@@ -843,6 +999,31 @@ static void app_runtime_send_cc(uint8_t channel, uint8_t cc, uint8_t value)
     app_midi_controlchange(channel, cc, value);
 }
 
+static void app_runtime_send_all_notes_off(void)
+{
+    uint8_t ch;
+
+    for (ch = 0U; ch < APP_MIDI_CHANNEL_COUNT; ch++)
+    {
+        app_runtime_send_cc(ch, IO_MIDI_CC_ALLNOTESOFF, 0U);
+    }
+}
+
+static uint8_t app_runtime_is_sequencer_mode(uint8_t mode)
+{
+    return (uint8_t)((mode == IO_MIDI_MODE_STATE_SEQUENCER_PARA) ||
+                     (mode == IO_MIDI_MODE_STATE_SEQUENCER_PROGRAM) ||
+                     (mode == IO_MIDI_MODE_STATE_SEQUENCER_REC) ||
+                     (mode == IO_MIDI_MODE_STATE_SEQUENCER_PLAY));
+}
+
+/**
+ * @brief Sends a Note On or Note Off message for a specific MIDI channel.
+ * @param channel The MIDI channel to send the note message.
+ * @param note The note number.
+ * @param velocity The velocity of the note.
+ * @param is_note_on Flag indicating whether the note is on (1) or off (0).
+ */
 static void app_runtime_send_note(uint8_t channel, uint8_t note, uint8_t velocity, uint8_t is_note_on)
 {
     if (is_note_on != 0U)
@@ -855,6 +1036,12 @@ static void app_runtime_send_note(uint8_t channel, uint8_t note, uint8_t velocit
     }
 }
 
+/**
+ * @brief Sets the local MIDI context for display purposes.
+ * @param midi_msg_type The type of MIDI message.
+ * @param data1 The first data byte of the MIDI message.
+ * @param data2 The second data byte of the MIDI message.
+ */
 static void app_runtime_set_local_midi_context(uint8_t midi_msg_type, uint8_t data1, uint8_t data2)
 {
     if (g_midi_ctrl.channel <= APP_MIDI_CHANNEL_MAX)
@@ -867,6 +1054,9 @@ static void app_runtime_set_local_midi_context(uint8_t midi_msg_type, uint8_t da
     }
 }
 
+/**
+ * @brief Processes sequencer playback events. This function handles the playback of sequencer events.
+ */
 static void app_runtime_process_sequencer_playback(void)
 {
     domain_sequencer_playback_event_t events[16];
@@ -874,7 +1064,8 @@ static void app_runtime_process_sequencer_playback(void)
     uint8_t i;
 
     if ((g_current_mode != IO_MIDI_MODE_STATE_SEQUENCER_PARA) &&
-        (g_current_mode != IO_MIDI_MODE_STATE_SEQUENCER_INPUT) &&
+        (g_current_mode != IO_MIDI_MODE_STATE_SEQUENCER_PROGRAM) &&
+        (g_current_mode != IO_MIDI_MODE_STATE_SEQUENCER_REC) &&
         (g_current_mode != IO_MIDI_MODE_STATE_SEQUENCER_PLAY))
     {
         return;
@@ -894,6 +1085,9 @@ static void app_runtime_process_sequencer_playback(void)
     }
 }
 
+/**
+ * @brief Processes metronome click events. This function handles the metronome click based on the current mode and sequencer state.
+ */
 static void app_runtime_process_metronome_click(void)
 {
     static uint16_t last_metronome_count;
@@ -909,7 +1103,8 @@ static void app_runtime_process_metronome_click(void)
         enable_click = 1U;
     }
     else if ((g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_PARA) ||
-             (g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_INPUT) ||
+             (g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_PROGRAM) ||
+             (g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_REC) ||
              (g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_PLAY))
     {
         is_sequencer_mode = 1U;
@@ -1018,6 +1213,20 @@ static void app_runtime_handle_cmd_display_update(const app_command_t *cmd)
 
 static void app_runtime_handle_cmd_mode_change(const app_command_t *cmd)
 {
+    uint8_t prev_mode = g_current_mode;
+
+    if ((g_current_mode == IO_MIDI_MODE_STATE_SEQUENCER_PROGRAM) &&
+        (cmd->payload.mode != IO_MIDI_MODE_STATE_SEQUENCER_PROGRAM))
+    {
+        app_runtime_seqprogram_abort_active_notes();
+    }
+
+    if ((app_runtime_is_sequencer_mode(prev_mode) != 0U) &&
+        (app_runtime_is_sequencer_mode((uint8_t)cmd->payload.mode) == 0U))
+    {
+        app_runtime_send_all_notes_off();
+    }
+
     g_current_mode = cmd->payload.mode;
 }
 
@@ -1153,6 +1362,7 @@ void app_runtime_step(uint32_t now_tick)
     app_runtime_update_seqinput_auto_advance();
     app_runtime_process_metronome_click();
     app_runtime_process_sequencer_playback();
+    app_runtime_process_seqprogram_preview(now_tick);
 
     app_runtime_process_rx_midi(now_tick);
 
@@ -1223,8 +1433,20 @@ void app_runtime_input_init(void)
     app_runtime_restore_base_display();
 }
 
+/**
+ * @brief Handles the RE2 rotate mode parameter input event. This function processes the input event for the RE2 rotate control when in mode parameter mode.
+ *
+ * @param ev  The input event to handle.
+ * @param effective_mode The effective mode of the application at the time of the event.
+ * @return uint8_t
+ */
 static uint8_t app_runtime_handle_re2_rotate_modeparam(const app_event_t *ev, uint8_t effective_mode)
 {
+    if (effective_mode == IO_MIDI_MODE_STATE_SEQUENCER_PROGRAM)
+    {
+        return app_runtime_dispatch_re2_rotate_modeparam(ev, effective_mode);
+    }
+
     if (app_runtime_is_modeparam_active(effective_mode) == 0U)
     {
         return 0U;
@@ -1233,6 +1455,11 @@ static uint8_t app_runtime_handle_re2_rotate_modeparam(const app_event_t *ev, ui
     return app_runtime_dispatch_re2_rotate_modeparam(ev, effective_mode);
 }
 
+/**
+ * @brief Handles the RE2 rotate normal input event. This function processes the input event for the RE2 rotate control when in normal mode.
+ * @param ev The input event to handle.
+ * @return uint8_t
+ */
 static uint8_t app_runtime_handle_re2_rotate_normal(const app_event_t *ev)
 {
     if (g_re2_ctrl == APP_RE2_CTRL_CHANNEL)
@@ -1248,9 +1475,21 @@ static uint8_t app_runtime_handle_re2_rotate_normal(const app_event_t *ev)
     return 1U;
 }
 
+/**
+ * @brief Handles the RE2 button special mode input event. This function processes the input event for the RE2 button when in special mode.
+ * @param ev The input event to handle.
+ * @param effective_mode The effective mode of the application at the time of the event.
+ * @return uint8_t
+ */
 static uint8_t app_runtime_handle_re2_button_special_mode(const app_event_t *ev, uint8_t effective_mode)
 {
-    if (effective_mode == IO_MIDI_MODE_STATE_SEQUENCER_INPUT)
+    if (effective_mode == IO_MIDI_MODE_STATE_SEQUENCER_PROGRAM)
+    {
+        app_runtime_seqprogram_handle_button_down(ev->tick);
+        return 1U;
+    }
+
+    if (effective_mode == IO_MIDI_MODE_STATE_SEQUENCER_REC)
     {
         uint8_t input_action = 0U;
         uint8_t target_bar = 0U;
@@ -1279,6 +1518,12 @@ static uint8_t app_runtime_handle_re2_button_special_mode(const app_event_t *ev,
     return 0U;
 }
 
+/**
+ * @brief Handles the RE2 button mode parameter input event. This function processes the input event for the RE2 button when in mode parameter mode.
+ * @param ev The input event to handle.
+ * @param effective_mode The effective mode of the application at the time of the event.
+ * @return uint8_t
+ */
 static uint8_t app_runtime_handle_re2_button_modeparam(const app_event_t *ev, uint8_t effective_mode)
 {
     if (app_runtime_is_modeparam_active(effective_mode) == 0U)
@@ -1298,6 +1543,33 @@ static uint8_t app_runtime_handle_re2_button_modeparam(const app_event_t *ev, ui
     return 1U;
 }
 
+/**
+ * @brief Handles the RE2 button up event for the SEQUENCER_PROGRAM mode. This function processes the button up event for the RE2 button when in SEQUENCER_PROGRAM mode.
+ * @param ev The input event to handle.
+ * @param effective_mode The effective mode of the application at the time of the event.
+ * @return uint8_t
+ */
+static uint8_t app_runtime_handle_re2_button_up_program(const app_event_t *ev, uint8_t effective_mode)
+{
+    if ((ev == 0) || (ev->source != APP_INPUT_SOURCE_RE2) || (ev->type != EV_BUTTON_UP))
+    {
+        return 0U;
+    }
+
+    if (effective_mode != IO_MIDI_MODE_STATE_SEQUENCER_PROGRAM)
+    {
+        return 0U;
+    }
+
+    app_runtime_seqprogram_handle_button_up(ev->tick);
+    return 1U;
+}
+
+/**
+ * @brief Handles the RE2 button normal mode input event. This function processes the input event for the RE2 button when in normal mode.
+ * @param ev The input event to handle.
+ * @return uint8_t
+ */
 static uint8_t app_runtime_handle_re2_button_normal(const app_event_t *ev)
 {
     uint16_t next_ctrl = (uint16_t)((g_re2_ctrl + 1U) % APP_RE2_CTRL_COUNT);
@@ -1330,6 +1602,11 @@ void app_runtime_handle_input_event(const app_event_t *ev)
     }
 
     effective_mode = app_runtime_get_effective_mode();
+
+    if (app_runtime_handle_re2_button_up_program(ev, effective_mode) != 0U)
+    {
+        return;
+    }
 
     (void)app_input_router_dispatch_input_event(ev,
                                                 effective_mode,

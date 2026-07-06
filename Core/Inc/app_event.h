@@ -11,6 +11,7 @@
 #define APP_EVENT_H
 
 #include <stdint.h>
+#include "domain_display_model.h"
 
 typedef uint8_t app_mode_state_t;
 
@@ -54,16 +55,7 @@ typedef enum
     CMD_NODE_CHANGE
 } app_command_type_t;
 
-typedef enum
-{
-    APP_DISPLAY_NOTE = 0,
-    APP_DISPLAY_METRONOME,
-    APP_DISPLAY_SEQUENCER_PARA,
-    APP_DISPLAY_SEQUENCER_INPUT,
-    APP_DISPLAY_SEQUENCER_PLAY,
-    APP_DISPLAY_SETTING,
-    APP_DISPLAY_OVERLAY
-} app_display_state_t;
+typedef domain_display_state_t app_display_state_t;
 
 typedef struct
 {

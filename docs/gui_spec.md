@@ -90,7 +90,8 @@
 - `MODE_STATE_FREEPLAY`: `FREEPLY`
 - `MODE_STATE_METRONOME`: `METRNOM`
 - `MODE_STATE_SEQUENCER_PARA`: `SQ-PARA`
-- `MODE_STATE_SEQUENCER_INPUT`: `SQ-PROG`
+- `MODE_STATE_SEQUENCER_PROGRAM`: `SQ-PROG`
+- `MODE_STATE_SEQUENCER_REC`: `SQ-REC `
 - `MODE_STATE_SEQUENCER_PLAY`: `SQ-PLAY`
 - `MODE_STATE_SETTING`: `SETTING`
 
@@ -157,7 +158,7 @@ y=7  ...............................B
 - `T`: BPM文字描画領域
 - `B`: BLEピクセル
 
-### 7.5 SEQUENCER_PARA / SEQUENCER_INPUT / SEQUENCER_PLAY
+### 7.5 SEQUENCER_PARA / SEQUENCER_PROGRAM / SEQUENCER_REC / SEQUENCER_PLAY
 共通のフレームを使う。
 
 固定描画:
@@ -192,11 +193,12 @@ y=7  ...............................B
 - その間に `beat` 分割された拍ごとに弱いクリック音を出す
 
 オーバーレイ時のベース維持:
-- `SEQUENCER_PARA/INPUT/PLAY` 由来のオーバーレイ表示中は、左ペイン(8x8アイコン)を保持する
+- `SEQUENCER_PARA/CLEAR/PLAY` 由来のオーバーレイ表示中は、左ペイン(8x8アイコン)を保持する
 - 小節表示(下部バー帯 `y=7`)はオーバーレイ中も常時描画する
 - 右側の楽譜エリア(`x=9..31`)はベース描画を行わず、オーバーレイ表示で覆う
-- `SEQUENCER_PARA/INPUT/PLAY` のパラメータ調整オーバーレイ中は、区切り線(`x=8`)を描画しない
+- `SEQUENCER_PARA/CLEAR/PLAY` のパラメータ調整オーバーレイ中は、区切り線(`x=8`)を描画しない
 - `SEQUENCER_PLAY` の `value=0` (PLAY操作) オーバーレイ時は、区切り線(`x=8`)と右側グラフィックを維持する
+- `SEQUENCER_PROGRAM` の RE2回転/押下/離上操作ではオーバーレイを出さず、区切り線(`x=8`)と右側グラフィックを通常表示のまま維持する
 
 SEQUENCER_PLAY 追加表示:
 - 開始座標: `(8,1)`
@@ -241,8 +243,8 @@ y=7  BBBBBBBB|GGGGGGGGGGGGGGGGGGGGGGG
 
 MIDIIN 代表表示:
 - Program Change:
-- テキスト: `stm32synth_prog_text[program]` (6文字)
-- 開始座標: `(4,1)`
+- テキスト: `stm32synth_prog_text[program]` (7文字)
+- 開始座標: `(2,1)`
 - 色: `col_string`
 - 単一ch対象時: `y=7` にchバー (`x=2*ch, len=2`, 色 `col_string`)
 - `ALL` ミラー時: chバーは描画しない
@@ -257,7 +259,7 @@ MIDIIN 代表表示:
 主要パラメータ変更時の表示:
 - VOLUME変更 (`CC7`): `VOL.%3d` を `(2,1)` に表示、値バーを `y=7` に表示
 - REVERB変更 (`CC91`): `RVB.%3d` を `(2,1)` に表示、値バーを `y=7` に表示
-- 楽器変更 (`Program Change`): `stm32synth_prog_text[program]` の6文字を `(4,1)` に表示
+- 楽器変更 (`Program Change`): `stm32synth_prog_text[program]` の7文字を `(2,1)` に表示
 
 ### 7.7.1 CC番号と表示ラベル対応 (主要項目)
 `stm32synth_cc_text[cc]` により、MIDIINで3文字ラベルを表示する。
@@ -281,7 +283,7 @@ MIDIIN 代表表示:
 - 値バー: `y=7`, 長さ `32*val/127`
 - chマーカ: 単一ch対象時は `y=6`, `x=2*ch`, `len=2`。`ALL` ミラー時は表示しない
 - Program Change:
-- 文字: `(4,1)` に6文字楽器名 (`stm32synth_prog_text[program]`)
+- 文字: `(2,1)` に7文字楽器名 (`stm32synth_prog_text[program]`)
 - chバー: 単一ch対象時は `y=7`, `x=2*ch`, `len=2`。`ALL` ミラー時は表示しない
 
 ### 7.8 SETTING (`STM32SYNTH_DISPSTATE_SETTING`)
@@ -301,7 +303,7 @@ MIDIIN 代表表示:
 - `control=VOLUME`: `0..127`, step=4, ch=ALL時は全chミラー
 - `control=PROGRAM`: `0..127`, step=1, ch=ALL時は全chミラー
 - VOLUMEは単一ch対象なら `MIDIIN` 相当の `VOL.%3d` を表示し、`y=6` にchマーカを出す
-- PROGRAMは単一ch対象なら `MIDIIN` 相当の楽器名6文字を表示し、`y=7` にchマーカを出す
+- PROGRAMは単一ch対象なら `MIDIIN` 相当の楽器名7文字を表示し、`y=7` にchマーカを出す
 - ch=ALL時は内部送信扱いで全chへミラー送信し、chバーは表示しない
 
 ## 8.3 RE2 ボタン (RE1がMODE以外)
@@ -336,10 +338,17 @@ SEQUENCER_PARA:
 - 回転: 選択項目の値を変更
 - 表示: `SEQUENCER_PARA` の1秒テキスト (開始 `(8,1)`)
 
-SEQUENCER_INPUT:
+SEQUENCER_PROGRAM:
+- 回転: 入力NoteNumを `0..127` で変更
+- 回転時動作: NoteNum変更ごとに `NoteOn` し、100ms後に `NoteOff`
+- ボタン押下: 現在のNoteNumを `NoteOn` し、同時にシーケンサへ録音開始
+- ボタン離上: 同じNoteNumを `NoteOff` し、録音終了
+- 表示: 区切り線および右側エリアは通常表示のまま、オーバーレイなし
+
+SEQUENCER_REC:
 - 回転: `cnt_seqpara_sel_bar 0..(bar*2-1)`
 - rec_mode判定: `<bar` ならUNDO, `>=bar` ならCH CLEAR
-- ボタン: `stm32synth_seq_progpush(0|1)` 実行
+- ボタン: `stm32synth_seq_progpush(0|1)` 相当の編集操作を実行
 - 表示: 1秒テキスト `UNDO` or `CH CLR`
 
 SEQUENCER_PLAY:
@@ -367,7 +376,7 @@ SETTING:
 2. `cnt_midi_program()` で `stm32synth_midi_program()` または `stm32synth_midi_programAll()` を呼ぶ
 3. Program Change をMIDIバッファへ投入
 4. `inputmidi` 側でProgram Changeを描画し `state.code=MIDIIN` を1秒保持
-5. 表示は楽器名6文字 (`stm32synth_prog_text[program]`) を `(4,1)`
+5. 表示は楽器名7文字 (`stm32synth_prog_text[program]`) を `(2,1)`
 6. 外部入力時のみ `y=7` に2pxのchバーを表示
 
 ### 8.6.3 RE2 回転: REVERB
@@ -423,7 +432,8 @@ SETTING:
 | FREEPLAY | 回転/押下 | 送信なし | ローカル状態更新のみ |
 | METRONOME | 回転/押下 | 送信なし | BPM内部値更新 |
 | SEQUENCER_PARA | 回転/押下 | 送信なし | シーケンサ内部パラメータ更新 |
-| SEQUENCER_INPUT | 回転/押下 | 送信なし | 内部シーケンサ編集操作 |
+| SEQUENCER_PROGRAM | 回転/押下/離上 | NoteOn/NoteOff + 内部録音 | 回転でNoteNum試聴(100ms自動NoteOff)、押下/離上で録音ノート長を入力 |
+| SEQUENCER_REC | 回転/押下 | 送信なし | 内部シーケンサ編集操作 |
 | SEQUENCER_PLAY | 回転/押下 | 送信なし | 再生/ミュート内部状態更新 |
 | SETTING | 押下 | 送信なし | `GOTODFU` 実行 |
 
@@ -502,7 +512,7 @@ y7 ........
 - タイムアウト値 (1000ms/2500ms) を保持する。
 
 ## 13. 網羅チェック結果
-- 表示ステート (`HELLO/MODESEL/NOTE/METRONOME/SEQUENCER_PARA/SEQUENCER_INPUT/SEQUENCER_PLAY/CHANNEL/MIDIIN/SETTING`) の描画仕様を記載済み。
+- 表示ステート (`HELLO/MODESEL/NOTE/METRONOME/SEQUENCER_PARA/SEQUENCER_PROGRAM/SEQUENCER_REC/SEQUENCER_PLAY/CHANNEL/MIDIIN/SETTING`) の描画仕様を記載済み。
 - RE1/RE2 のボタン・回転について、MODE/CHANNEL/SEQUENCER系に加えて VOLUME/PROGRAM/REVERB の表示仕様を記載済み。
 - 楽器変更 (Program Change) は、文字列ソース・開始座標・内部/外部入力でのchバー差分まで記載済み。
 - 主要CC (VOL/RVB/BNK/PAN/EXP) の番号・表示ラベル・表示形式を記載済み。

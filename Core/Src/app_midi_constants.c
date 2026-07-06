@@ -141,135 +141,135 @@ const char stm32synth_cc_text[][3] = {
 };
 
 /* ===== Program Text (128 entries) ===== */
-const char stm32synth_prog_text[][6] = {
-    "ACGRPN",
-    "BRACPN",
-    "ELGRPN",
-    "HONKPN",
-    "RHODPN",
-    "CHORPN",
-    "HAPSCD",
-    "CLAVNT",
-    "CELEST",
-    "GLKSPL",
-    "MUSBOX",
-    "VIBRPH",
-    "MARIMB",
-    "XYLOPH",
-    "TUBBEL",
-    "DULCIM",
-    "HAMORG",
-    "PERORG",
-    "RCKORG",
-    "CHRORG",
-    "REEORG",
-    "ACCORD",
-    "HARMON",
-    "TNGACD",
-    "NYLGTR",
-    "STLGTR",
-    "JAZGTR",
-    "CLNGTR",
-    "MUTGTR",
-    "OVRGTR",
-    "DISGTR",
-    "GTRHMN",
-    "ACSTBS",
-    "FINGBS",
-    "PLELBS",
-    "FRETBS",
-    "SLAPB1",
-    "SLAPB2",
-    "SYNTB1",
-    "SYNTB2",
-    "VIOLIN",
-    "VIOLA ",
-    "CELLO ",
-    "CONTRB",
-    "TRESTR",
-    "PIZSTR",
-    "ORCHHP",
-    "TIMPNI",
-    "STRENS",
-    "STREN2",
-    "SYNSTR",
-    "SYNST2",
-    "CHOAAH",
-    "CHOOOH",
-    "SYNVOC",
-    "ORCHIT",
-    "TRUMPT",
-    "TROMBN",
-    "TUBA  ",
-    "MUTTRP",
-    "FRHORN",
-    "BRASSC",
-    "SYBRAS",
-    "SYBRA2",
-    "SOPRSX",
-    "ALTOSX",
-    "TENOSX",
-    "BRTNSX",
-    "OBOE  ",
-    "ENHORN",
-    "BASSON",
-    "CLARNT",
-    "PICCOL",
-    "FLUTE ",
-    "RECORD",
-    "PANFLT",
-    "BOTBLE",
-    "SHAKUH",
-    "WHISTL",
-    "OCARIN",
-    "SQLEAD",
-    "SWLEAD",
-    "CALLIO",
-    "CHIFFL",
-    "CHARAN",
-    "VOLEAD",
-    "FIFTHS",
-    "BASSLD",
-    "NEAGPD",
-    "WARMPD",
-    "POLYPD",
-    "CHORPD",
-    "BOWDPD",
-    "MTLCPD",
-    "HALOPD",
-    "SWEPPD",
-    "RAINEF",
-    "SOUNDE",
-    "CRYSTL",
-    "ATMOSP",
-    "BRIGHT",
-    "GOBLIN",
-    "ECHOES",
-    "SCIFIE",
-    "SITAR ",
-    "BANJO ",
-    "SHAMIS",
-    "KOTO  ",
-    "KALIMB",
-    "BAGPIP",
-    "FIDDLE",
-    "SHANAI",
-    "TINKLE",
-    "AGOGO ",
-    "STEELD",
-    "WOODBL",
-    "TAIKOD",
-    "MELOTM",
-    "SYNDRM",
-    "REVCSM",
-    "GFRETN",
-    "BREATH",
-    "SEASHR",
-    "BIRDTW",
-    "TELEPH",
-    "HELICP",
-    "APPLSE",
-    "GUNSHT",
+const char stm32synth_prog_text[][7] = {
+    "ACGRDPN", // ACOUSTIC_GRAND_PIANO
+    "BRTACPN", // BRIGHT_ACOUSTIC_PIANO
+    "ELGRDPN", // ELECTRIC_GRAND_PIANO
+    "HONKTPN", // HONKYTONK_PIANO
+    "RHODSPN", // RHODES_PIANO
+    "CHORSPN", // CHORUSED_PIANO
+    "HAPSICD", // HARPSICHORD
+    "CLAVINT", // CLAVINET
+    "CELESTA", // CELESTA
+    "GLKNSPL", // GLOCKENSPIEL
+    "MUSCBOX", // MUSIC_BOX
+    "VIBRPHN", // VIBRAPHONE
+    "MARIMBA", // MARIMBA
+    "XYLOPHN", // XYLOPHONE
+    "TUBLBEL", // TUBULAR_BELLS
+    "DULCIMR", // DULCIMER
+    "HMNDORG", // HAMMOND_ORGAN
+    "PERCORG", // PERCUSSIVE_ORGAN
+    "ROCKORG", // ROCK_ORGAN
+    "CHRCORG", // CHURCH_ORGAN
+    "REEDORG", // REED_ORGAN
+    "ACCORDN", // ACCORDION
+    "HARMONC", // HARMONICA
+    "TNGOACD", // TANGO_ACCORDION
+    "NYLNGTR", // ACOUSTIC_NYLON_GUITAR
+    "STELGTR", // ACOUSTIC_STEEL_GUITAR
+    "EJAZGTR", // ELECTRIC_JAZZ_GUITAR
+    "ECLNGTR", // ELECTRIC_CLEAN_GUITAR
+    "EMUTGTR", // ELECTRIC_MUTED_GUITAR
+    "OVRDGTR", // OVERDRIVEN_GUITAR
+    "DISTGTR", // DISTORTION_GUITAR
+    "GTRHMNC", // GUITAR_HARMONICS
+    "ACSTCBS", // ACOUSTIC_BASS
+    "FINGDBS", // FINGERED_ELECTRIC_BASS
+    "PLCKDBS", // PLUCKED_ELECTRIC_BASS
+    "FRETLBS", // FRETLESS_BASS
+    "SLAPBS1", // SLAP_BASS_1
+    "SLAPBS2", // SLAP_BASS_2
+    "SYNTBS1", // SYNTH_BASS_1
+    "SYNTBS2", // SYNTH_BASS_2
+    "VIOLIN ", // VIOLIN
+    "VIOLA  ", // VIOLA
+    "CELLO  ", // CELLO
+    "CONTRBS", // CONTRABASS
+    "TREMSTR", // TREMOLO_STRINGS
+    "PIZCSTR", // PIZZICATO_STRINGS
+    "ORCSTHP", // ORCHESTRAL_HARP
+    "TIMPANI", // TIMPANI
+    "STRENS1", // STRING_ENSEMBLE_1
+    "STRENS2", // STRING_ENSEMBLE_2
+    "SYNSTR1", // SYNTH_STRINGS_1
+    "SYNSTR2", // SYNTH_STRINGS_2
+    "CHORAAH", // CHOIR_AAH
+    "CHOROOH", // CHOIR_OOH
+    "SYNVOIC", // SYNTH_VOICE
+    "ORCTHIT", // ORCHESTRAL_HIT
+    "TRUMPET", // TRUMPET
+    "TROMBNE", // TROMBONE
+    "TUBA   ", // TUBA
+    "MUTDTRP", // MUTED_TRUMPET
+    "FREHORN", // FRENCH_HORN
+    "BRASSSC", // BRASS_SECTION
+    "SYBRASS", // SYNTH_BRASS_1
+    "SYBRAS2", // SYNTH_BRASS_2
+    "SOPRSAX", // SOPRANO_SAX
+    "ALTOSAX", // ALTO_SAX
+    "TENOSAX", // TENOR_SAX
+    "BRTNSAX", // BARITONE_SAX
+    "OBOE   ", // OBOE
+    "ENGHORN", // ENGLISH_HORN
+    "BASSOON", // BASSOON
+    "CLARNET", // CLARINET
+    "PICCOLO", // PICCOLO
+    "FLUTE  ", // FLUTE
+    "RECODER", // RECORDER
+    "PANFLUT", // PAN_FLUTE
+    "BOTBLEW", // BOTTLE_BLOW
+    "SHAKHAC", // SHAKUHACHI
+    "WHISTLE", // WHISTLE
+    "OCARINA", // OCARINA
+    "SQWLEAD", // SQUARE_WAVE_LEAD
+    "SWWLEAD", // SAWTOOTH_WAVE_LEAD
+    "CALLIOP", // CALLIOPE_LEAD
+    "CHIFFLD", // CHIFF_LEAD
+    "CHARNLD", // CHARANG_LEAD
+    "VOICELD", // VOICE_LEAD
+    "FIFTHLD", // FIFTHS_LEAD
+    "BASS LD", // BASS_LEAD
+    "NEWAGPD", // NEW_AGE_PAD
+    "WARM PD", // WARM_PAD
+    "POLY PD", // POLYSYNTH_PAD
+    "CHOIRPD", // CHOIR_PAD
+    "BOWEDPD", // BOWED_PAD
+    "METLCPD", // METALLIC_PAD
+    "HALO PD", // HALO_PAD
+    "SWEEPPD", // SWEEP_PAD
+    "RAIN EF", // RAIN_EFFECT
+    "SOUNDEF", // SOUNDTRACK_EFFECT
+    "CRSTLEF", // CRYSTAL_EFFECT
+    "ATMOSEF", // ATMOSPHERE_EFFECT
+    "BRGHTEF", // BRIGHTNESS_EFFECT
+    "GBLINEF", // GOBLINS_EFFECT
+    "ECHESEF", // ECHOES_EFFECT
+    "SCIFIEF", // SCI_FI_EFFECT
+    "SITAR  ", // SITAR
+    "BANJO  ", // BANJO
+    "SHAMIS ", // SHAMISEN
+    "KOTO   ", // KOTO
+    "KALIMBA", // KALIMBA
+    "BAGPIPE", // BAGPIPE
+    "FIDDLE ", // FIDDLE
+    "SHANAI ", // SHANAI
+    "TINKLEB", // TINKLE_BELL
+    "AGOGO  ", // AGOGO
+    "STEELDR", // STEEL_DRUMS
+    "WOODBLK", // WOODBLOCK
+    "TAIKODR", // TAIKO_DRUM
+    "MELODTM", // MELODIC_TOM
+    "SYNTHDR", // SYNTH_DRUM
+    "REVECYM", // REVERSE_CYMBAL
+    "GTFRETN", // GUITAR_FRET_NOISE
+    "BREATHN", // BREATH_NOISE
+    "SEASHRE", // SEASHORE
+    "BIRDTWT", // BIRD_TWEET
+    "TELRING", // TELEPHONE_RING
+    "HELICPT", // HELICOPTER
+    "APPLASE", // APPLAUSE
+    "GUNSHOT", // GUN_SHOT
 };
 
 /* ===== Mode Text ===== */
@@ -277,7 +277,8 @@ const char mode_text[][7] = {
     "FREEPLY", // MODE_STATE_FREEPLAY
     "METRNOM", // MODE_STATE_METRONOME
     "SQ-PARA", // MODE_STATE_SEQUENCER_PARA
-    "SQ-PROG", // MODE_STATE_SEQUENCER_INPUT
     "SQ-PLAY", // MODE_STATE_SEQUENCER_PLAY
+    "SQ-PROG", // MODE_STATE_SEQUENCER_PROGRAM
+    "SQ-REC ", // MODE_STATE_SEQUENCER_REC
     "SETTING", // MODE_STATE_SETTING
 };

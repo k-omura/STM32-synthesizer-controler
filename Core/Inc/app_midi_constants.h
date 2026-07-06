@@ -34,7 +34,7 @@ extern const app_midi_color_t APP_MIDI_COLOR_SEL_RECNOTE[8];
 
 /* ===== Text Tables ===== */
 extern const char stm32synth_cc_text[][3];
-extern const char stm32synth_prog_text[][6];
+extern const char stm32synth_prog_text[][7];
 extern const char mode_text[][7];
 
 /* ===== MIDI Constants ===== */

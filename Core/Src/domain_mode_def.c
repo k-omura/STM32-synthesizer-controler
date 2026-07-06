@@ -25,7 +25,7 @@ static void domain_mode_push_display(domain_display_state_t display, app_command
     }
 
     out_cmds[*out_count].type = CMD_DISPLAY_UPDATE;
-    out_cmds[*out_count].payload.display = (app_display_state_t)display;
+    out_cmds[*out_count].payload.display = display;
     (*out_count)++;
 }
 
@@ -50,11 +50,18 @@ static void domain_mode_on_enter_seqpara(void *ctx, const app_event_t *ev, app_c
     domain_mode_push_display(DOMAIN_DISPLAY_SEQUENCER_PARA, out_cmds, out_count);
 }
 
+static void domain_mode_on_enter_seqprogram(void *ctx, const app_event_t *ev, app_command_t *out_cmds, uint8_t *out_count)
+{
+    (void)ctx;
+    (void)ev;
+    domain_mode_push_display(DOMAIN_DISPLAY_SEQUENCER_PROGRAM, out_cmds, out_count);
+}
+
 static void domain_mode_on_enter_seqinput(void *ctx, const app_event_t *ev, app_command_t *out_cmds, uint8_t *out_count)
 {
     (void)ctx;
     (void)ev;
-    domain_mode_push_display(DOMAIN_DISPLAY_SEQUENCER_INPUT, out_cmds, out_count);
+    domain_mode_push_display(DOMAIN_DISPLAY_SEQUENCER_REC, out_cmds, out_count);
 }
 
 static void domain_mode_on_enter_seqplay(void *ctx, const app_event_t *ev, app_command_t *out_cmds, uint8_t *out_count)
@@ -71,21 +78,14 @@ static void domain_mode_on_enter_setting(void *ctx, const app_event_t *ev, app_c
     domain_mode_push_display(DOMAIN_DISPLAY_SETTING, out_cmds, out_count);
 }
 
-/* Mode state constants */
-#define MODE_STATE_FREEPLAY IO_MIDI_MODE_STATE_FREEPLAY               //!< Freeplay mode state
-#define MODE_STATE_METRONOME IO_MIDI_MODE_STATE_METRONOME             //!< Metronome mode state
-#define MODE_STATE_SEQUENCER_PARA IO_MIDI_MODE_STATE_SEQUENCER_PARA   //!< Sequencer parameter mode state
-#define MODE_STATE_SEQUENCER_INPUT IO_MIDI_MODE_STATE_SEQUENCER_INPUT //!< Sequencer input mode state
-#define MODE_STATE_SEQUENCER_PLAY IO_MIDI_MODE_STATE_SEQUENCER_PLAY   //!< Sequencer play mode state
-#define MODE_STATE_SETTING IO_MIDI_MODE_STATE_SETTING                 //!< Setting mode state
-
 static const domain_mode_def_t g_mode_defs[] = {
-    {MODE_STATE_FREEPLAY, DOMAIN_DISPLAY_NOTE, 0, 0, domain_mode_on_enter_freeplay, 0, 0, 0},
-    {MODE_STATE_METRONOME, DOMAIN_DISPLAY_METRONOME, 0, 0, domain_mode_on_enter_metronome, 0, 0, 0},
-    {MODE_STATE_SEQUENCER_PARA, DOMAIN_DISPLAY_SEQUENCER_PARA, 0, 0, domain_mode_on_enter_seqpara, 0, 0, 0},
-    {MODE_STATE_SEQUENCER_INPUT, DOMAIN_DISPLAY_SEQUENCER_INPUT, 0, 0, domain_mode_on_enter_seqinput, 0, 0, 0},
-    {MODE_STATE_SEQUENCER_PLAY, DOMAIN_DISPLAY_SEQUENCER_PLAY, 0, 0, domain_mode_on_enter_seqplay, 0, 0, 0},
-    {MODE_STATE_SETTING, DOMAIN_DISPLAY_SETTING, 0, 0, domain_mode_on_enter_setting, 0, 0, 0},
+    {IO_MIDI_MODE_STATE_FREEPLAY, DOMAIN_DISPLAY_NOTE, 0, 0, domain_mode_on_enter_freeplay, 0, 0, 0},
+    {IO_MIDI_MODE_STATE_METRONOME, DOMAIN_DISPLAY_METRONOME, 0, 0, domain_mode_on_enter_metronome, 0, 0, 0},
+    {IO_MIDI_MODE_STATE_SEQUENCER_PARA, DOMAIN_DISPLAY_SEQUENCER_PARA, 0, 0, domain_mode_on_enter_seqpara, 0, 0, 0},
+    {IO_MIDI_MODE_STATE_SEQUENCER_PLAY, DOMAIN_DISPLAY_SEQUENCER_PLAY, 0, 0, domain_mode_on_enter_seqplay, 0, 0, 0},
+    {IO_MIDI_MODE_STATE_SEQUENCER_PROGRAM, DOMAIN_DISPLAY_SEQUENCER_PROGRAM, 0, 0, domain_mode_on_enter_seqprogram, 0, 0, 0},
+    {IO_MIDI_MODE_STATE_SEQUENCER_REC, DOMAIN_DISPLAY_SEQUENCER_REC, 0, 0, domain_mode_on_enter_seqinput, 0, 0, 0},
+    {IO_MIDI_MODE_STATE_SETTING, DOMAIN_DISPLAY_SETTING, 0, 0, domain_mode_on_enter_setting, 0, 0, 0},
 };
 
 /**

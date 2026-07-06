@@ -207,7 +207,9 @@ static void io_display_renderer_draw_sequencer_recorded_notes(domain_display_sta
         return;
     }
 
-    if ((state == DOMAIN_DISPLAY_SEQUENCER_PARA) || (state == DOMAIN_DISPLAY_SEQUENCER_INPUT))
+    if ((state == DOMAIN_DISPLAY_SEQUENCER_PARA) ||
+        (state == DOMAIN_DISPLAY_SEQUENCER_PROGRAM) ||
+        (state == DOMAIN_DISPLAY_SEQUENCER_REC))
     {
         selected_ch = g_seqpara_channel;
         selected_bank = (selected_ch < 8U) ? 0U : 1U;
@@ -276,7 +278,9 @@ static void io_display_renderer_draw_seq_channel_persistent_with_length(domain_d
     io_display_driver_color_t col_lane = io_display_renderer_color_from_midi(APP_MIDI_COLOR_CURSORY);
     io_display_driver_color_t col_sel_channel = io_display_renderer_color_from_midi(APP_MIDI_COLOR_SEL_CHANNEL);
 
-    if ((state == DOMAIN_DISPLAY_SEQUENCER_PARA) || (state == DOMAIN_DISPLAY_SEQUENCER_INPUT))
+    if ((state == DOMAIN_DISPLAY_SEQUENCER_PARA) ||
+        (state == DOMAIN_DISPLAY_SEQUENCER_PROGRAM) ||
+        (state == DOMAIN_DISPLAY_SEQUENCER_REC))
     {
         io_display_renderer_draw_seq_channel_lane_limited(g_seqpara_channel, lane_length, &col_lane, &col_sel_channel);
     }
@@ -378,7 +382,8 @@ static void io_display_renderer_draw_sequencer_left_pane(domain_display_state_t 
     io_display_driver_color_t col_icon;
     io_display_driver_icon_t icon = IO_DISPLAY_DRIVER_ICON_STOP;
 
-    if (state == DOMAIN_DISPLAY_SEQUENCER_INPUT)
+    if ((state == DOMAIN_DISPLAY_SEQUENCER_REC) ||
+        (state == DOMAIN_DISPLAY_SEQUENCER_PROGRAM))
     {
         icon = IO_DISPLAY_DRIVER_ICON_RECORD;
         col_icon = io_display_renderer_color_from_midi(APP_MIDI_COLOR_SEL_REC);
@@ -460,7 +465,8 @@ static void io_display_renderer_draw_sequencer_bar_meter(domain_display_state_t 
     bar_index = (uint8_t)(progress_bar % 8U);
     io_display_driver_pixel((int16_t)bar_index, 7, &col_temp);
 
-    if (state == DOMAIN_DISPLAY_SEQUENCER_INPUT)
+    if ((state == DOMAIN_DISPLAY_SEQUENCER_REC) ||
+        (state == DOMAIN_DISPLAY_SEQUENCER_PROGRAM))
     {
         target_bar = domain_sequencer_engine_get_selected_bar();
         if (seq->bar != 0U)
@@ -587,7 +593,8 @@ static void io_display_renderer_draw_base(domain_display_state_t state, io_displ
         io_display_renderer_draw_metronome(col_text);
         break;
     case DOMAIN_DISPLAY_SEQUENCER_PARA:
-    case DOMAIN_DISPLAY_SEQUENCER_INPUT:
+    case DOMAIN_DISPLAY_SEQUENCER_PROGRAM:
+    case DOMAIN_DISPLAY_SEQUENCER_REC:
     case DOMAIN_DISPLAY_SEQUENCER_PLAY:
         io_display_renderer_draw_sequencer_graphics(state, col_text);
         break;
@@ -751,7 +758,7 @@ static void io_display_renderer_draw_overlay(int16_t message, io_display_driver_
     case DOMAIN_OVERLAY_PROGRAM:
         if (value < 128U)
         {
-            io_display_driver_string(4, 1, stm32synth_prog_text[value], 6, col_text, 0);
+            io_display_driver_string(2, 1, stm32synth_prog_text[value], 7, col_text, 0);
             if ((midi_ctx.valid != 0U) && (midi_ctx.channel <= IO_DISPLAY_MIDI_CHANNEL_MAX))
             {
                 io_display_driver_xbar((int16_t)(2U * midi_ctx.channel), 7, 2, col_text);
@@ -778,9 +785,9 @@ static uint8_t io_display_renderer_draw_overlay_base(int16_t message, io_display
     {
     case DOMAIN_OVERLAY_SEQ_INPUT:
     case DOMAIN_OVERLAY_SEQ_INPUT_ACTION:
-        io_display_renderer_draw_seq_channel_persistent_with_length(DOMAIN_DISPLAY_SEQUENCER_INPUT, 8U);
-        io_display_renderer_draw_sequencer_left_pane(DOMAIN_DISPLAY_SEQUENCER_INPUT, col_text, 0U);
-        io_display_renderer_draw_sequencer_bar_meter(DOMAIN_DISPLAY_SEQUENCER_INPUT);
+        io_display_renderer_draw_seq_channel_persistent_with_length(DOMAIN_DISPLAY_SEQUENCER_REC, 8U);
+        io_display_renderer_draw_sequencer_left_pane(DOMAIN_DISPLAY_SEQUENCER_REC, col_text, 0U);
+        io_display_renderer_draw_sequencer_bar_meter(DOMAIN_DISPLAY_SEQUENCER_REC);
         return 1U;
     case DOMAIN_OVERLAY_SEQ_PLAY:
     case DOMAIN_OVERLAY_SEQ_PLAY_ACTION:
