@@ -14,12 +14,23 @@
 static io_input_driver_btn_t g_btn[2];
 static io_input_driver_rot_t g_rot[2];
 
+typedef struct
+{
+    uint8_t pending;
+    uint8_t count;
+    uint8_t candidate_pressed;
+} io_input_driver_btn_debounce_t;
+
+static io_input_driver_btn_debounce_t g_btn_debounce[2];
+
 /**
  * @brief Initializes the input driver, including buttons and rotary encoders.
  * @param led_type The type of LED to initialize in the display driver.
  */
 void io_input_driver_init(uint8_t led_type)
 {
+    uint8_t i;
+
     /* Initialize button structures */
     g_btn[0].port = GPIOC;
     g_btn[0].pin = RE1_BTN_Pin;
@@ -54,6 +65,13 @@ void io_input_driver_init(uint8_t led_type)
     g_rot[1].count = 0;
     g_rot[1].control = 1;
 
+    for (i = 0; i < 2; i++)
+    {
+        g_btn_debounce[i].pending = 0U;
+        g_btn_debounce[i].count = 0U;
+        g_btn_debounce[i].candidate_pressed = 0U;
+    }
+
     /* Set LED type for neopixel driver */
     io_display_driver_settype(led_type);
 }
@@ -64,27 +82,16 @@ void io_input_driver_init(uint8_t led_type)
  */
 void io_input_driver_exti_callback(uint16_t gpio_pin)
 {
+    uint8_t idx;
+
     switch (gpio_pin)
     {
     case RE1_BTN_Pin:
-    {
-        if (HAL_GPIO_ReadPin(g_btn[0].port, g_btn[0].pin) == GPIO_PIN_RESET)
-        {
-            if (g_btn[0].state == IO_INPUT_DRIVER_BTN_RELEASE)
-            {
-                g_btn[0].state = IO_INPUT_DRIVER_BTN_PUSHED;
-            }
-        }
-        else
-        {
-            if (g_btn[0].state != IO_INPUT_DRIVER_BTN_RELEASE)
-            {
-                g_btn[0].state = IO_INPUT_DRIVER_BTN_RELEASE;
-            }
-        }
-        g_btn[0].prev_state = g_btn[0].state;
+        idx = 0U;
+        g_btn_debounce[idx].pending = 1U;
+        g_btn_debounce[idx].count = 0U;
+        g_btn_debounce[idx].candidate_pressed = (HAL_GPIO_ReadPin(g_btn[idx].port, g_btn[idx].pin) == GPIO_PIN_RESET) ? 1U : 0U;
         break;
-    }
 
     case RE1_P1_Pin:
     case RE1_P2_Pin:
@@ -101,24 +108,11 @@ void io_input_driver_exti_callback(uint16_t gpio_pin)
     }
 
     case RE2_BTN_Pin:
-    {
-        if (HAL_GPIO_ReadPin(g_btn[1].port, g_btn[1].pin) == GPIO_PIN_RESET)
-        {
-            if (g_btn[1].state == IO_INPUT_DRIVER_BTN_RELEASE)
-            {
-                g_btn[1].state = IO_INPUT_DRIVER_BTN_PUSHED;
-            }
-        }
-        else
-        {
-            if (g_btn[1].state != IO_INPUT_DRIVER_BTN_RELEASE)
-            {
-                g_btn[1].state = IO_INPUT_DRIVER_BTN_RELEASE;
-            }
-        }
-        g_btn[1].prev_state = g_btn[1].state;
+        idx = 1U;
+        g_btn_debounce[idx].pending = 1U;
+        g_btn_debounce[idx].count = 0U;
+        g_btn_debounce[idx].candidate_pressed = (HAL_GPIO_ReadPin(g_btn[idx].port, g_btn[idx].pin) == GPIO_PIN_RESET) ? 1U : 0U;
         break;
-    }
 
     case RE2_P1_Pin:
     case RE2_P2_Pin:
@@ -148,6 +142,48 @@ void io_input_driver_timer_callback(void)
 
     for (i = 0; i < 2; i++)
     {
+        if (g_btn_debounce[i].pending != 0U)
+        {
+            uint8_t pressed = (HAL_GPIO_ReadPin(g_btn[i].port, g_btn[i].pin) == GPIO_PIN_RESET) ? 1U : 0U;
+
+            if (pressed == g_btn_debounce[i].candidate_pressed)
+            {
+                if (g_btn_debounce[i].count < 0xFFU)
+                {
+                    g_btn_debounce[i].count++;
+                }
+            }
+            else
+            {
+                g_btn_debounce[i].candidate_pressed = pressed;
+                g_btn_debounce[i].count = 1U;
+            }
+
+            if (g_btn_debounce[i].count >= 2U)
+            {
+                g_btn[i].prev_state = g_btn[i].state;
+
+                if (g_btn_debounce[i].candidate_pressed != 0U)
+                {
+                    if (g_btn[i].state == IO_INPUT_DRIVER_BTN_RELEASE)
+                    {
+                        g_btn[i].state = IO_INPUT_DRIVER_BTN_PUSHED;
+                    }
+                }
+                else
+                {
+                    if (g_btn[i].state != IO_INPUT_DRIVER_BTN_RELEASE)
+                    {
+                        g_btn[i].state = IO_INPUT_DRIVER_BTN_RELEASE;
+                        g_btn[i].tick = 0U;
+                    }
+                }
+
+                g_btn_debounce[i].pending = 0U;
+                g_btn_debounce[i].count = 0U;
+            }
+        }
+
         /* Button state machine */
         if (HAL_GPIO_ReadPin(g_btn[i].port, g_btn[i].pin) == GPIO_PIN_RESET)
         {
@@ -207,7 +243,7 @@ uint8_t io_input_driver_btn_check(uint8_t encoder_id)
         return 0;
     }
 
-    return (HAL_GPIO_ReadPin(g_btn[encoder_id].port, g_btn[encoder_id].pin) == GPIO_PIN_RESET) ? 1 : 0;
+    return (g_btn[encoder_id].state != IO_INPUT_DRIVER_BTN_RELEASE) ? 1U : 0U;
 }
 
 /**

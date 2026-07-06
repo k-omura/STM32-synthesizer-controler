@@ -30,6 +30,7 @@ typedef struct
 } io_input_adapter_state_t;
 
 static io_input_adapter_state_t g_state;
+static uint8_t g_btn_pressed_state[IO_INPUT_INDEX_COUNT];
 
 /**
  * @brief Pushes an event into the input adapter's event queue.
@@ -74,47 +75,14 @@ static void io_input_adapter_emit_long_press(uint8_t idx, uint32_t now_tick)
  */
 void io_input_adapter_init(void)
 {
+    uint8_t i;
+
     memset(&g_state, 0, sizeof(g_state));
-}
 
-/**
- * @brief Handles an external interrupt (EXTI) event for a GPIO pin.
- * @param gpio_pin The GPIO pin that triggered the interrupt.
- * @param now_tick The current tick count.
- */
-void io_input_adapter_on_exti(uint16_t gpio_pin, uint32_t now_tick)
-{
-    app_event_t ev;
-    io_input_index_t idx;
-
-    if (gpio_pin == RE1_BTN_Pin)
+    for (i = 0; i < IO_INPUT_INDEX_COUNT; i++)
     {
-        idx = IO_INPUT_INDEX_RE1;
+        g_btn_pressed_state[i] = io_input_driver_btn_check(i);
     }
-    else if (gpio_pin == RE2_BTN_Pin)
-    {
-        idx = IO_INPUT_INDEX_RE2;
-    }
-    else
-    {
-        return;
-    }
-
-    memset(&ev, 0, sizeof(ev));
-    ev.source = (idx == IO_INPUT_INDEX_RE1) ? APP_INPUT_SOURCE_RE1 : APP_INPUT_SOURCE_RE2;
-    ev.code = (uint16_t)idx;
-    ev.tick = now_tick;
-
-    if (io_input_driver_btn_check((uint8_t)idx) != 0U)
-    {
-        ev.type = EV_BUTTON_DOWN;
-    }
-    else
-    {
-        ev.type = EV_BUTTON_UP;
-    }
-
-    io_input_adapter_push_event(&ev);
 }
 
 /**
@@ -128,6 +96,19 @@ void io_input_adapter_on_timer(uint32_t now_tick)
     /* Process rotary encoder events */
     for (uint8_t i = 0; i < IO_INPUT_INDEX_COUNT; i++)
     {
+        uint8_t pressed = io_input_driver_btn_check(i);
+
+        if (pressed != g_btn_pressed_state[i])
+        {
+            memset(&ev, 0, sizeof(ev));
+            ev.type = (pressed != 0U) ? EV_BUTTON_DOWN : EV_BUTTON_UP;
+            ev.source = (i == IO_INPUT_INDEX_RE1) ? APP_INPUT_SOURCE_RE1 : APP_INPUT_SOURCE_RE2;
+            ev.code = i;
+            ev.tick = now_tick;
+            io_input_adapter_push_event(&ev);
+            g_btn_pressed_state[i] = pressed;
+        }
+
         io_input_adapter_emit_long_press(i, now_tick);
 
         io_input_driver_rot_t *rot = io_input_driver_get_rot(i);
@@ -150,7 +131,7 @@ void io_input_adapter_on_timer(uint32_t now_tick)
         }
     }
 
-    /* Button events are emitted in io_input_adapter_on_exti(). */
+    /* Button events are emitted here after debounce-confirmed state transitions. */
 }
 
 /**

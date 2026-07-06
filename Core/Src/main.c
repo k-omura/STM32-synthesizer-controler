@@ -103,7 +103,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   io_input_driver_exti_callback(GPIO_Pin);
-  io_input_adapter_on_exti(GPIO_Pin, HAL_GetTick());
   return;
 }
 
