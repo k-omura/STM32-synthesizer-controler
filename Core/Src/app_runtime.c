@@ -996,6 +996,12 @@ static void app_runtime_seqprogram_abort_active_notes(void)
  */
 static void app_runtime_send_cc(uint8_t channel, uint8_t cc, uint8_t value)
 {
+    if (cc == IO_MIDI_CC_USER_MODECONTROL)
+    {
+        app_midi_modeControl(value);
+        return;
+    }
+
     app_midi_controlchange(channel, cc, value);
 }
 
@@ -1341,7 +1347,7 @@ void app_runtime_start(void)
 
     app_runtime_restore_base_display();
 
-    /* Keep legacy startup behavior: initialize synth-side mode control state. */
+    /* Startup behavior: initialize synth-side mode control state. */
     app_runtime_send_cc(0, IO_MIDI_CC_USER_MODECONTROL, IO_MIDI_MODECONTROL_CABLENUMFILTON);
 }
 
