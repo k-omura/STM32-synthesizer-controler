@@ -145,14 +145,14 @@ int main(void)
   MX_SPI3_Init();
   /* USER CODE BEGIN 2 */
 
-  /* Initialize I/O drivers */
+  // Initialize I/O drivers
   uint8_t led_type = (HAL_GPIO_ReadPin(LED_TYPE_GPIO_Port, LED_TYPE_Pin) == GPIO_PIN_RESET) ? 1 : 0;
   io_display_driver_init(&hspi2, led_type);
   io_input_driver_init(led_type);
   io_midi_transport_init();
   io_midi_transport_bind_tx_spi(&hspi3);
 
-  /* Initialize new architecture */
+  // Initialize architecture
   app_runtime_init();
   app_runtime_input_init();
   io_input_adapter_init();
@@ -164,45 +164,46 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
+  // Start timer interrupt for input driver
   HAL_TIM_Base_Start_IT(&htim11);
 
-  /* Initial MIDI BLE initiater/client switch */
-  if (io_input_driver_btn_check(0) == 1)
+  // Initial MIDI BLE initiater/client switch
+  if (HAL_GPIO_ReadPin(RE1_BTN_GPIO_Port, RE1_BTN_Pin) == GPIO_PIN_RESET)
   {
     HAL_GPIO_WritePin(bleInitMode_GPIO_Port, bleInitMode_Pin, GPIO_PIN_SET);
     HAL_Delay(1000);
     HAL_GPIO_WritePin(bleInitMode_GPIO_Port, bleInitMode_Pin, GPIO_PIN_RESET);
   }
 
-  /* Start MIDI Repeater */
+  // Start MIDI Repeater
   HAL_SPI_Receive_DMA(&hspi5, spi_controler_rx, 4);
 
-  /* Start new application runtime */
+  // Start new application runtime
   app_runtime_start();
 
   while (1)
   {
     MIDI_Application();
-    /* USER CODE END WHILE */
+    // USER CODE END WHILE
     MX_USB_HOST_Process();
 
     /* USER CODE BEGIN 3 */
     uint32_t tick = HAL_GetTick();
 
-    /* Input events in runtime */
+    // Input events in runtime
     app_event_t input_event;
     while (io_input_adapter_poll(&input_event))
     {
       app_runtime_post_event(&input_event);
     }
 
-    /* Step application runtime */
+    // Step application runtime
     app_runtime_step(tick);
 
-    /* Service MIDI transport */
+    // Service MIDI transport
     io_midi_transport_service();
 
-    /* Render display */
+    // Render display
     domain_display_model_t display_model;
     domain_display_model_get_current(&display_model);
     io_display_renderer_render(&display_model);

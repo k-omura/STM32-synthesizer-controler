@@ -306,22 +306,22 @@ MIDIIN 代表表示:
 - PROGRAMは単一ch対象なら `MIDIIN` 相当の楽器名7文字を表示し、`y=7` にchマーカを出す
 - ch=ALL時は内部送信扱いで全chへミラー送信し、chバーは表示しない
 
-## 8.3 RE2 ボタン (RE1がMODE以外)
+## 8.3 RE2 ボタン (FREEPLAY)
 - `RE2 control` 巡回: `CHANNEL <-> REVERB`
 - 実装: `cnt_midi_cont_change(&re_rot[1].control, 1)`
 - 表示:
 - CHANNEL: `stm32synth_disp_channel(cnt_channel)`
 - REVERB: 直接専用画面はなし (CC表示はMIDIIN経由)
 
-## 8.4 RE2 回転 (RE1がMODE以外)
+## 8.4 RE2 回転 (FREEPLAY)
 - CHANNEL: `0..16` (`16=ALL`)
 - REVERB: `0..127`, step=4
 - 表示:
 - CHANNELは専用 `CHANNEL` 画面
 - REVERBはMIDI経路経由で `MIDIIN` に `RVB.%3d` を表示
 
-## 8.5 RE2 操作 (RE1がMODE)
-RE2は mode parameter に切替。
+## 8.5 RE2 操作 (FREEPLAY以外)
+RE2は現在のモード固有パラメータを操作する。RE1の操作対象には依存しない。
 
 FREEPLAY:
 - 回転: `RE2 control` に応じて `CHANNEL` または `REVERB` を操作
@@ -418,14 +418,14 @@ SETTING:
 | `control=PROGRAM`, `ch=0..15` | `Cn` (PC) | `program=0..127` (step=1) | 単一ch更新 |
 | `control=PROGRAM`, `ch=ALL` | `C0..CF` (PC) | 各chへ同一program送信 | 全chミラー |
 
-### 8.7.2 RE2 回転 (RE1がMODE以外)
+### 8.7.2 RE2 回転 (FREEPLAY)
 
 | 条件 | 送信コマンド | データ内容 | 備考 |
 |---|---|---|---|
 | `control=CHANNEL` | 送信なし | なし | 選択chのみ更新 |
 | `control=REVERB` | `B0` (CC) | `CC91(RVB)`, `value=0..127` (step=4) | グローバル送信 |
 
-### 8.7.3 RE2 操作 (RE1がMODE)
+### 8.7.3 RE2 操作 (FREEPLAY以外)
 
 | モード | 操作 | 送信コマンド | データ内容 |
 |---|---|---|---|
@@ -517,3 +517,40 @@ y7 ........
 - 楽器変更 (Program Change) は、文字列ソース・開始座標・内部/外部入力でのchバー差分まで記載済み。
 - 主要CC (VOL/RVB/BNK/PAN/EXP) の番号・表示ラベル・表示形式を記載済み。
 - RE操作時系列 (入力 -> MIDI送信 -> 画面更新 -> タイムアウト復帰) を記載済み。
+
+## 14. UX改善仕様 (2026-08)
+
+### 14.1 基本方針
+- 32x8表示の座標系、フォント、アイコン、色、固定フレームは維持する。
+- 操作の混乱を減らすため、操作対象の明示とモードパラメータ編集への到達手順を短縮する。
+
+### 14.2 追加した操作ルール
+- RE1 長押し:
+- いかなるモードでも RE1 の操作対象を `MODE` に即時切替する。
+- RE2 長押し:
+- 既存のモード専用長押し動作 (REC/PLAY/SETTING) は維持する。
+- 上記以外のモードでは `EDIT ON / EDITOFF` をトグルする。
+
+### 14.3 操作対象ガイド表示 (短時間オーバーレイ)
+- RE1ボタンで対象切替した直後に、約650msのガイドを表示する。
+- `R1 MODE` / `R1 VOL` / `R1 PRG`
+- RE2ボタンで対象切替した直後に、約650msのガイドを表示する。
+- `R2 CH` / `R2 RVB`
+- `EDIT` トグル時にも約650msガイドを表示する。
+- `EDIT ON` / `EDITOFF`
+
+### 14.4 シーケンサ系オーバーレイの明確化
+- `SEQUENCER_PARA` の CHANNEL項目は文字を表示せず、選択行とバンク識別ドットだけを表示する。
+- `SEQUENCER_PLAY` オーバーレイ:
+- `playmode=0` は `PLAYON` または `PLAYOF` を `(8,1)` に表示する。
+- `playmode>0` は `MUTEnn` を `(8,1)` に表示する。
+- `SEQUENCER_REC` の実行操作時は `UNDO/CH CLR/...` の実行オーバーレイを表示する。
+
+### 14.5 長押し判定カウンター表示
+- RE1/RE2 ボタン押下中で、長押し成立前 (`600ms未満`) は進捗オーバーレイを表示する。
+- 表示内容:
+- 文字: 表示しない
+- 進捗バー: `y=7` の全幅32pxバーを 0..32 ステップで伸長
+- 更新単位: 長押し時間を32分割したステップで更新
+- 16ステップ以上に到達した時点でバーを表示し、それ未満では表示しない
+- 長押し成立 (`>=600ms`) すると通常の `EV_LONG_PRESS` 処理へ遷移する。

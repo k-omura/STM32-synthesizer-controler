@@ -31,12 +31,7 @@
 #include "stm32f4xx_hal.h"
 
 /* USER CODE BEGIN INCLUDE */
-#define LOWEST_NOTE 0
-
-#include "usbh_def.h"
-extern USBH_HandleTypeDef hUsbHostFS_out;
-
-void MIDI_Application();
+void MIDI_Application(void);
 
 /* USER CODE END INCLUDE */
 

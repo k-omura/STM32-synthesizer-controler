@@ -78,6 +78,17 @@ static const io_display_text_entry_t g_seq_metronome_texts[] = {
     {"MTRON", 5},
 };
 
+static const io_display_text_entry_t g_control_hint_texts[] = {
+    {"", 0},
+    {"MODE", 4},
+    {"VOLUME", 6},
+    {"PROGRAM", 7},
+    {"CHANNEL", 7},
+    {"REVERB", 6},
+    {"EDITOFF", 7},
+    {"EDIT ON", 7},
+};
+
 static io_display_driver_color_t io_display_renderer_note_color_from_velocity(uint8_t velocity)
 {
     io_display_driver_color_t out;
@@ -300,7 +311,7 @@ static void io_display_renderer_draw_seqpara_value_bpm(uint16_t para_val, io_dis
     char text[12];
 
     snprintf(text, sizeof(text), "BPM%3u", para_val);
-    io_display_driver_string(8, 1, text, (uint8_t)strlen(text), col_text, 0);
+    io_display_driver_string(9, 1, text, (uint8_t)strlen(text), col_text, 0);
 }
 
 static void io_display_renderer_draw_seqpara_value_beat(uint16_t para_val, io_display_driver_color_t *col_text)
@@ -308,7 +319,7 @@ static void io_display_renderer_draw_seqpara_value_beat(uint16_t para_val, io_di
     char text[12];
 
     snprintf(text, sizeof(text), "BEAT%2u", para_val);
-    io_display_driver_string(8, 1, text, (uint8_t)strlen(text), col_text, 0);
+    io_display_driver_string(9, 1, text, (uint8_t)strlen(text), col_text, 0);
 }
 
 static void io_display_renderer_draw_seqpara_value_bar(uint16_t para_val, io_display_driver_color_t *col_text)
@@ -316,7 +327,7 @@ static void io_display_renderer_draw_seqpara_value_bar(uint16_t para_val, io_dis
     char text[12];
 
     snprintf(text, sizeof(text), "BAR %2u", para_val);
-    io_display_driver_string(8, 1, text, (uint8_t)strlen(text), col_text, 0);
+    io_display_driver_string(9, 1, text, (uint8_t)strlen(text), col_text, 0);
 }
 
 static void io_display_renderer_draw_seqpara_value_channel(uint16_t para_val, io_display_driver_color_t *col_text)
@@ -332,7 +343,7 @@ static void io_display_renderer_draw_seqpara_value_metronome(uint16_t para_val, 
 {
     const io_display_text_entry_t *entry = &g_seq_metronome_texts[(para_val == 0U) ? 0U : 1U];
 
-    io_display_driver_string(8, 1, entry->text, entry->len, col_text, 0);
+    io_display_driver_string(9, 1, entry->text, entry->len, col_text, 0);
 }
 
 static const io_display_seqpara_value_draw_fn_t g_seqpara_value_draw_table[] = {
@@ -636,31 +647,38 @@ static void io_display_renderer_draw_overlay_seq_input(uint16_t value, io_displa
     const io_display_text_entry_t *entry = &g_seq_input_action_texts[(action <= 3U) ? action : 3U];
 
     g_seqinput_target_bar = (uint8_t)((target_bar <= 0x0FU) ? target_bar : 0x0FU);
-    io_display_driver_string(8, 1, entry->text, entry->len, col_text, 0);
+    io_display_driver_string(9, 1, entry->text, entry->len, col_text, 0);
 }
 
 static void io_display_renderer_draw_overlay_seq_play(uint16_t value, io_display_driver_color_t *col_text)
 {
+    const domain_sequencer_state_t *seq = domain_sequencer_engine_get_state();
+    char text[12];
+
     if (value == 0U)
     {
         g_seqplay_mode = 0U;
+
+        if ((seq != 0) && (seq->playing != 0U))
+        {
+            io_display_driver_string(9, 1, "PLAYON", 6, col_text, 0);
+        }
+        else
+        {
+            io_display_driver_string(9, 1, "PLAYOF", 6, col_text, 0);
+        }
         return;
     }
 
     g_seqplay_mode = (value > IO_DISPLAY_MIDI_CHANNEL_COUNT) ? IO_DISPLAY_MIDI_CHANNEL_COUNT : (uint8_t)value;
-
-    (void)col_text;
+    snprintf(text, sizeof(text), "MUTE%2u", g_seqplay_mode);
+    io_display_driver_string(9, 1, text, (uint8_t)strlen(text), col_text, 0);
 }
 
 static void io_display_renderer_draw_overlay_seqpara_select(uint16_t value, io_display_driver_color_t *col_text)
 {
-    if (value == IO_DISPLAY_SEQPARA_CHANNEL)
-    {
-        return;
-    }
-
     const io_display_text_entry_t *entry = &g_seqpara_select_texts[(value <= IO_DISPLAY_SEQPARA_METRONOME) ? value : IO_DISPLAY_SEQPARA_METRONOME];
-    io_display_driver_string(8, 1, entry->text, entry->len, col_text, 0);
+    io_display_driver_string(9, 1, entry->text, entry->len, col_text, 0);
 }
 
 static void io_display_renderer_draw_overlay_seqpara_value(uint16_t value, io_display_driver_color_t *col_text)
@@ -668,6 +686,15 @@ static void io_display_renderer_draw_overlay_seqpara_value(uint16_t value, io_di
     uint16_t para = (uint16_t)((value >> 9) & 0x7U);
     uint16_t para_val = (uint16_t)(value & 0x1FFU);
     char text[12];
+
+    if (para == IO_DISPLAY_SEQPARA_CHANNEL)
+    {
+        if (para_val > 0U)
+        {
+            g_seqpara_channel = (uint8_t)(para_val - 1U);
+        }
+        return;
+    }
 
     if (para <= IO_DISPLAY_SEQPARA_METRONOME)
     {
@@ -712,6 +739,29 @@ static void io_display_renderer_draw_overlay(int16_t message, io_display_driver_
         if (value < IO_MIDI_MODE_STATE_COUNT)
         {
             io_display_driver_string(2, 1, mode_text[value], 7, col_text, 0);
+        }
+        break;
+    case DOMAIN_OVERLAY_CONTROL:
+        if ((value & 0x100U) != 0U)
+        {
+            uint8_t hold_step = (uint8_t)(value & 0x7FU);
+
+            io_display_driver_string(2, 1, "HOLD", 4, col_text, 0);
+
+            if (hold_step > 32U)
+            {
+                hold_step = 32U;
+            }
+
+            if (hold_step >= 16U)
+            {
+                io_display_driver_xbar(0, 7, hold_step, col_text);
+            }
+        }
+        else if (value < (sizeof(g_control_hint_texts) / sizeof(g_control_hint_texts[0])))
+        {
+            const io_display_text_entry_t *entry = &g_control_hint_texts[value];
+            io_display_driver_string(2, 1, entry->text, entry->len, col_text, 0);
         }
         break;
     case DOMAIN_OVERLAY_MIDI_IN:

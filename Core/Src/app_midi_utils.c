@@ -10,6 +10,8 @@
 #include "io_midi_transport.h"
 #include "io_midi_types.h"
 
+#define APP_MIDI_CHANNEL_COUNT 16U
+
 /* ===== MIDI Message Generation ===== */
 /**
  * @brief Builds a 4-byte MIDI packet and sends it through the shared transport queue.
@@ -195,4 +197,69 @@ void app_midi_modeControl(uint8_t mode)
                          (uint8_t)(IO_MIDI_EVT0_CONTROLCHANGE | 0x00),
                          IO_MIDI_CC_USER_MODECONTROL,
                          mode);
+}
+
+void app_midi_send_control(uint8_t channel, uint8_t cc, uint8_t value)
+{
+    if (cc == IO_MIDI_CC_USER_MODECONTROL)
+    {
+        app_midi_modeControl(value);
+        return;
+    }
+
+    app_midi_controlchange(channel, cc, value);
+}
+
+void app_midi_send_all_notes_off(void)
+{
+    uint8_t channel;
+
+    for (channel = 0U; channel < APP_MIDI_CHANNEL_COUNT; channel++)
+    {
+        app_midi_send_control(channel, IO_MIDI_CC_ALLNOTESOFF, 0U);
+    }
+}
+
+void app_midi_send_volume(uint8_t channel, uint8_t volume)
+{
+    if (channel >= APP_MIDI_CHANNEL_COUNT)
+    {
+        uint8_t current_channel;
+
+        for (current_channel = 0U; current_channel < APP_MIDI_CHANNEL_COUNT; current_channel++)
+        {
+            app_midi_send_control(current_channel, IO_MIDI_CC_VOLUME, volume);
+        }
+        return;
+    }
+
+    app_midi_send_control(channel, IO_MIDI_CC_VOLUME, volume);
+}
+
+void app_midi_send_program(uint8_t channel, uint8_t program)
+{
+    if (channel >= APP_MIDI_CHANNEL_COUNT)
+    {
+        uint8_t current_channel;
+
+        for (current_channel = 0U; current_channel < APP_MIDI_CHANNEL_COUNT; current_channel++)
+        {
+            app_midi_programchange(current_channel, program);
+        }
+        return;
+    }
+
+    app_midi_programchange(channel, program);
+}
+
+void app_midi_send_note(uint8_t channel, uint8_t note, uint8_t velocity, uint8_t is_note_on)
+{
+    if (is_note_on != 0U)
+    {
+        app_midi_noteon(channel, note, velocity);
+    }
+    else
+    {
+        app_midi_noteoff(channel, note);
+    }
 }

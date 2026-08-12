@@ -47,6 +47,29 @@ void io_display_driver_init(SPI_HandleTypeDef *hspi, uint8_t led_type)
     memset(g_fb_raw, 0, sizeof(g_fb_raw));
 }
 
+void io_display_driver_shutdown(void)
+{
+    GPIO_InitTypeDef gpio_init = {0};
+
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13 | GPIO_PIN_15, GPIO_PIN_RESET);
+
+    if (g_hspi != 0)
+    {
+        (void)HAL_SPI_Abort(g_hspi);
+        (void)HAL_SPI_DeInit(g_hspi);
+        g_hspi = 0;
+    }
+
+    gpio_init.Pin = GPIO_PIN_13 | GPIO_PIN_15;
+    gpio_init.Mode = GPIO_MODE_OUTPUT_PP;
+    gpio_init.Pull = GPIO_NOPULL;
+    gpio_init.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &gpio_init);
+
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13 | GPIO_PIN_15, GPIO_PIN_RESET);
+}
+
 /**
  * @brief Sets the LED type for the display driver.
  * @param type The new LED type.

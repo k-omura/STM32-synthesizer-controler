@@ -8,6 +8,7 @@
  */
 
 #include "io_system_control.h"
+#include "io_display_driver.h"
 #include "main.h"
 
 /**
@@ -18,6 +19,8 @@ io_system_control_result_t io_system_control_goto_dfu(void)
 {
     io_system_control_result_t res = IO_SYSTEM_CONTROL_RES_OK;
     void (*SysMemBootJump)(void);
+
+    io_display_driver_shutdown();
 
     /* Disable all interrupts */
     __disable_irq();

@@ -23,8 +23,10 @@ uint8_t app_input_router_dispatch_input_event(const app_event_t *ev,
     {
     case APP_INPUT_SOURCE_RE1:
         return app_input_router_dispatch_re1_event(ev,
+                                                   effective_mode,
                                                    handlers->re1.rotate,
-                                                   handlers->re1.button_down);
+                                                   handlers->re1.button_down,
+                                                   handlers->re1.long_press);
 
     case APP_INPUT_SOURCE_RE2:
         return app_input_router_dispatch_re2_event(ev,
@@ -80,6 +82,16 @@ uint8_t app_input_router_dispatch_re2_event(const app_event_t *ev,
             return 1U;
         }
 
+        return 0U;
+    }
+
+    if (ev->type == EV_SHORT_PRESS)
+    {
+        if ((button_special != 0) && (button_special(ev, effective_mode) != 0U))
+        {
+            return 1U;
+        }
+
         if ((button_modeparam != 0) && (button_modeparam(ev, effective_mode) != 0U))
         {
             return 1U;
@@ -108,8 +120,10 @@ uint8_t app_input_router_dispatch_re2_event(const app_event_t *ev,
 }
 
 uint8_t app_input_router_dispatch_re1_event(const app_event_t *ev,
+                                            uint8_t effective_mode,
                                             app_input_router_re1_normal_handler_t rotate_handler,
-                                            app_input_router_re1_normal_handler_t button_down_handler)
+                                            app_input_router_re1_normal_handler_t button_down_handler,
+                                            app_input_router_re1_mode_handler_t long_press_handler)
 {
     if (ev == 0)
     {
@@ -127,11 +141,22 @@ uint8_t app_input_router_dispatch_re1_event(const app_event_t *ev,
         return 0U;
     }
 
-    if (ev->type == EV_BUTTON_DOWN)
+    if (ev->type == EV_SHORT_PRESS)
     {
         if (button_down_handler != 0)
         {
             (void)button_down_handler(ev);
+            return 1U;
+        }
+
+        return 0U;
+    }
+
+    if (ev->type == EV_LONG_PRESS)
+    {
+        if (long_press_handler != 0)
+        {
+            (void)long_press_handler(ev, effective_mode);
             return 1U;
         }
 

@@ -4,10 +4,9 @@
 - 本書は、Core配下ソースコードの現状実装を根拠に、機能仕様を整理したもの。
 - 対象は主に以下ファイル。
 	- Core/Src/main.c
-	- Core/Src/mode.c
-	- Core/Src/stm32_synth_midi.c
-	- Core/Src/neopixel.c
-	- Core/Src/stm32_synth_dfu.c
+	- Core/Src/app_*.c
+	- Core/Src/domain_*.c
+	- Core/Src/io_*.c
 	- Core/Src/stm32f4xx_hal_msp.c
 	- Core/Src/stm32f4xx_it.c
 	- Core/Inc/*.h
@@ -24,7 +23,7 @@
 ### 3.1 外部インタフェース
 - USB
 	- USB Hostスタックを起動し、メインループで `MIDI_Application()` と `MX_USB_HOST_Process()` を呼ぶ。
-	- USB MIDI受信データは最終的にCore側MIDIバッファへ投入される想定(実処理はUSB_HOST配下)。
+	- USB MIDI受信データはUSB_HOST配下で解析し、`io_midi_transport_send_packet()` を介してSPI3送信キューへ投入する。
 - SPI
 	- SPI5: MIDI入力受信(スレーブ、RX専用、DMA受信)
 		- 4バイトUSB-MIDI風パケットをDMAで受信し、完了コールバックでリングバッファへ格納。
@@ -39,34 +38,39 @@
 
 ### 3.3 GPIO出力
 - bleInitMode: 起動時条件で1秒パルス出力しBLE初期モード切替を要求。
-- BOARD_LED: 初期化のみ(現状、常時点灯/点滅制御は未実装)。
+- BOARD_LED: USB Hostの接続・MIDIクラス使用可能状態を表示する。
 
 ## 4. クロック・周期仕様
 - SYSCLK: HSE+PLL設定により96MHz。
 - TIM11割り込み周期(概算):
 	- Prescaler=20000, Period=100 より約47.5Hz(約21ms周期)。
 - TIM11割り込み用途:
-	- ボタン状態の `PUSHED -> PUSHING` 遷移処理
-	- 回転エンコーダ位相の確定とインクリメント/デクリメント処理
+	- `io_input_driver_timer_callback()` によるボタン状態の更新
+	- `io_input_driver_handle()` による回転・ボタンイベント生成
 
 ## 5. ソフトウェア構成
 
 ### 5.1 main.c
 - 初期化:
 	- HAL/Clock/GPIO/DMA/SPI2/USB/TIM11/SPI5/SPI3
-	- `re_init()` でエンコーダ管理初期化
+	- Display/Input/MIDI Transport各I/Oモジュール初期化
+	- `app_runtime_init()` / `app_runtime_input_init()` によるアプリケーション状態初期化
 	- TIM11割り込み開始
 	- 起動時にRE1ボタン押下ならBLE初期モード切替パルスを出力
-	- MIDI mode controlでCable Number filter ONを送信
 	- SPI5 DMA受信開始(4バイト)
+	- `app_runtime_start()` で初期表示とCable Number filter ONを送信
 - メインループ:
 	- `MIDI_Application()`
 	- `MX_USB_HOST_Process()`
-	- `stm32synth_hundle(&hspi2, &hspi3, tick)`
-	- `re_hundle(tick)`
+	- Input Adapterのイベントを `app_runtime_post_event()` へ投入
+	- `app_runtime_step(tick)` で状態遷移、MIDI処理、シーケンサ処理を実行
+	- `io_midi_transport_service()` でSPI3 DMA送信を実行
+	- Display ModelをRendererへ渡してLEDフレームを描画・送信
 
-### 5.2 mode.c
-- UI入力(ボタン・回転)をモード/パラメータ変更へ変換。
+### 5.2 Input Driver / Adapter / Router
+- `io_input_driver` がGPIOとタイマからボタン・回転状態を確定する。
+- `io_input_adapter` が入力状態を `app_event_t` に変換してキューへ投入する。
+- `app_input_router` が入力元とイベント種別に応じてRuntimeのハンドラへ配送する。
 - エンコーダ割当:
 	- RE1: MODE / VOLUME / PROGRAM を巡回
 	- RE2: CHANNEL / REVERB (通常時)
@@ -83,37 +87,39 @@
 	- SEQUENCER_PLAY: RE2ボタンで再生トグルまたはミュート切替
 	- SETTING: RE2ボタンで設定実行(現状はDFU遷移)
 
-### 5.3 stm32_synth_midi.c
-- 中核機能:
-	- MIDIリングバッファ管理(4byteパケット)
-	- MIDIイベント解析(Note/CC/Program等)
-	- 表示状態マシン制御
-	- メトロノーム生成
-	- シーケンサ記録/再生/ミュート
-	- 各種MIDI送信API(Volume/Program/Reverb/Mode Control等)
+### 5.3 Application層
+- `app_runtime` がイベント消費、モード状態、オーバーレイ期限、シーケンサ操作を統括する。
+- `app_dispatcher` がイベントとtickをCommandへ変換する。
+- `app_midi_utils` が4バイトMIDIパケット生成とチャンネル展開ポリシーを担当する。
 
-### 5.4 neopixel.c
-- 8x32フレームバッファ管理。
-- RGB24をNeopixelシリアルビット列へ変換しSPI DMA送信。
-- 文字描画、バー描画、ロゴ、アイコン描画を提供。
-- `LED_TYPE` に応じて奇数列の走査方向を反転。
+### 5.4 Domain層
+- `domain_mode_def` がモード定義と基本表示を管理する。
+- `domain_sequencer_engine` がテンポ、進行、録音、再生、ミュートの正本を保持する。
+- `domain_display_model` がRendererへ渡す表示状態とMIDI表示コンテキストを保持する。
 
-### 5.5 stm32_synth_dfu.c
-- 割り込み停止、SysTick停止、RCC初期化、NVICクリア後にSystem Memoryへジャンプ。
+### 5.5 I/O層
+- `io_midi_transport`: SPI5割り込み受信キューとSPI3 DMA送信キューを管理する。
+- `io_display_renderer`: Display Modelを8x32描画命令へ変換する。
+- `io_display_driver`: フレームバッファをLEDシリアルデータへ変換しSPI2 DMA送信する。
+- `io_system_control`: 割り込みとクロックを停止してSystem MemoryのDFUへ遷移する。
 
 ## 6. データフロー仕様
 
 ### 6.1 MIDI入力からシンセ出力まで
 1. SPI5 DMA受信完了割り込みで4バイト受信。
-2. 受信データを `stm32synth_midi_writebuff()` でリングバッファへ書込。
+2. 受信データを `io_midi_transport_push_rx_packet()` でSPSC受信キューへ書込。
 3. DMA受信を再アーム。
-4. メインループの `stm32synth_hundle()` が1件読出。
-5. イベント解析・内部処理(表示更新、シーケンサ記録等)を実施。
-6. 最終パケットをSPI3 DMAでシンセへ送信。
+4. メインループの `app_runtime_step()` が受信キューを読出す。
+5. MIDIイベント解析、表示更新、シーケンサ記録、必要なチャンネル置換を実施する。
+6. `io_midi_transport_send_packet()` で送信キューへ投入する。
+7. `io_midi_transport_service()` がSPI3 DMAでシンセへ送信する。
+
+USB MIDI入力は `USBH_MIDI_ReceiveCallback()` で4バイト単位に解析し、対応するChannel Voice Messageを同じSPI3送信キューへ直接投入する。
 
 ### 6.2 表示更新
-- `stm32synth_hundle()` 内で現在表示状態に応じてフレームバッファを再描画。
-- 最後に `neopixel_flush()` でSPI2 DMA送信。
+- `domain_display_model` が現在の基本表示、オーバーレイ、MIDI表示コンテキストを保持する。
+- メインループで `io_display_renderer_render()` がフレームバッファを再描画する。
+- 最後に `io_display_renderer_flush()` からSPI2 DMA送信する。
 
 ## 7. 表示状態仕様
 - 主状態:

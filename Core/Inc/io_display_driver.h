@@ -32,6 +32,7 @@ typedef enum
 } io_display_driver_icon_t;
 
 void io_display_driver_init(SPI_HandleTypeDef *hspi, uint8_t led_type);
+void io_display_driver_shutdown(void);
 void io_display_driver_flush(void);
 void io_display_driver_settype(uint8_t type);
 

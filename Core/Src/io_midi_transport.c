@@ -12,8 +12,8 @@
 #include <string.h>
 
 static uint8_t g_rx_queue[IO_MIDI_RX_QUEUE_CAPACITY][4];
-static uint16_t g_rx_wpos;
-static uint16_t g_rx_rpos;
+static volatile uint16_t g_rx_wpos;
+static volatile uint16_t g_rx_rpos;
 static uint8_t g_tx_queue[IO_MIDI_TX_QUEUE_CAPACITY][4];
 static uint16_t g_tx_wpos;
 static uint16_t g_tx_rpos;
@@ -63,6 +63,7 @@ void io_midi_transport_push_rx_packet(const uint8_t packet[4])
     }
 
     memcpy(g_rx_queue[g_rx_wpos], packet, 4);
+    __DMB();
     g_rx_wpos = next;
 }
 
@@ -78,6 +79,7 @@ uint8_t io_midi_transport_pop_rx_packet(uint8_t packet[4])
         return 0;
     }
 
+    __DMB();
     memcpy(packet, g_rx_queue[g_rx_rpos], 4);
     g_rx_rpos = (uint16_t)((g_rx_rpos + 1U) % IO_MIDI_RX_QUEUE_CAPACITY);
     return 1;
@@ -112,12 +114,19 @@ void io_midi_transport_send_packet(const uint8_t packet[4])
  */
 void io_midi_transport_service(void)
 {
-    if ((g_hspi_tx == 0) || (g_tx_count == 0U) || (HAL_SPI_GetState(g_hspi_tx) != HAL_SPI_STATE_READY))
+    if ((g_hspi_tx == 0) || (g_tx_count == 0U))
     {
         return;
     }
 
-    HAL_SPI_Transmit_DMA(g_hspi_tx, g_tx_queue[g_tx_rpos], 4);
-    g_tx_rpos = (uint16_t)((g_tx_rpos + 1U) % IO_MIDI_TX_QUEUE_CAPACITY);
-    g_tx_count--;
+    while ((g_tx_count > 0U) && (HAL_SPI_GetState(g_hspi_tx) == HAL_SPI_STATE_READY))
+    {
+        if (HAL_SPI_Transmit(g_hspi_tx, g_tx_queue[g_tx_rpos], 4, 10U) != HAL_OK)
+        {
+            return;
+        }
+
+        g_tx_rpos = (uint16_t)((g_tx_rpos + 1U) % IO_MIDI_TX_QUEUE_CAPACITY);
+        g_tx_count--;
+    }
 }

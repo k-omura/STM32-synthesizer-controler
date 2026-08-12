@@ -35,27 +35,26 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-#define RX_BUFF_SIZE 256 /* USB MIDI buffer : max received data 256 bytes */
-extern ApplicationTypeDef Appli_state;
-uint8_t MIDI_RX_Buffer[RX_BUFF_SIZE]; // MIDI reception buffer
+#define RX_BUFF_SIZE 256                     /* USB MIDI buffer : max received data 256 bytes */
+static uint8_t MIDI_RX_Buffer[RX_BUFF_SIZE]; // MIDI reception buffer
 
 /* USER CODE END PV */
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
-void ProcessReceivedMidiDatas(void);
+static void ProcessReceivedMidiDatas(void);
 /* USER CODE END PFP */
 
 /* USB Host core handle declaration */
 USBH_HandleTypeDef hUsbHostFS;
-ApplicationTypeDef Appli_state = APPLICATION_IDLE;
+static ApplicationTypeDef Appli_state = APPLICATION_IDLE;
 
 /*
  * -- Insert your variables declaration here --
  */
 /* USER CODE BEGIN 0 */
 
-void MIDI_Application()
+void MIDI_Application(void)
 {
   switch (Appli_state)
   {
@@ -89,7 +88,7 @@ void USBH_MIDI_ReceiveCallback(USBH_HandleTypeDef *phost)
   USBH_MIDI_Receive(&hUsbHostFS, MIDI_RX_Buffer, RX_BUFF_SIZE); // start a new reception
 }
 
-void ProcessReceivedMidiDatas(void)
+static void ProcessReceivedMidiDatas(void)
 {
   uint32_t numberOfPackets;
   uint8_t *ptr = MIDI_RX_Buffer;

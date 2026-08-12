@@ -27,15 +27,29 @@
 #include "io_midi_types.h"
 
 /* Mode state constants */
-#define APP_BPM_STEP 5U                                                                                          //!< Step size for BPM adjustments
-#define APP_MIDI_CHANNEL_COUNT 16U                                                                               //!< Total number of MIDI channels
-#define APP_MIDI_CHANNEL_MAX (APP_MIDI_CHANNEL_COUNT - 1U)                                                       //!< Maximum MIDI channel index
-#define APP_MIDI_CHANNEL_ALL APP_MIDI_CHANNEL_COUNT                                                              //!< Special value representing all MIDI channels
-#define APP_OVERLAY_TIMEOUT_MS 1000U                                                                             //!< Timeout duration for overlay display in milliseconds
+#define APP_BPM_STEP 5U                                    //!< Step size for BPM adjustments
+#define APP_MIDI_CHANNEL_COUNT 16U                         //!< Total number of MIDI channels
+#define APP_MIDI_CHANNEL_MAX (APP_MIDI_CHANNEL_COUNT - 1U) //!< Maximum MIDI channel index
+#define APP_MIDI_CHANNEL_ALL APP_MIDI_CHANNEL_COUNT        //!< Special value representing all MIDI channels
+#define APP_OVERLAY_TIMEOUT_MS 1000U                       //!< Timeout duration for overlay display in milliseconds
+#define APP_OVERLAY_HINT_TIMEOUT_MS 650U
 #define APP_SEQ_PARA_ENCODE(kind, val) (uint16_t)((((uint16_t)(kind) & 0x7U) << 9) | ((uint16_t)(val) & 0x1FFU)) //!< Macro to encode sequencer parameter kind and value into a single 16-bit value
 #define APP_SEQ_PROGRAM_DEFAULT_NOTE 60U
 #define APP_SEQ_PROGRAM_PREVIEW_MS 100U
 #define APP_SEQ_PROGRAM_NOTE_VELOCITY 100U
+
+#define APP_CONTROL_HINT_RE1_MODE 1U
+#define APP_CONTROL_HINT_RE1_VOLUME 2U
+#define APP_CONTROL_HINT_RE1_PROGRAM 3U
+#define APP_CONTROL_HINT_RE2_CHANNEL 4U
+#define APP_CONTROL_HINT_RE2_REVERB 5U
+#define APP_CONTROL_HINT_EDIT_OFF 6U
+#define APP_CONTROL_HINT_EDIT_ON 7U
+#define APP_CONTROL_HINT_HOLD_PROGRESS_BASE 0x100U
+#define APP_CONTROL_HINT_HOLD_PROGRESS_SRC_SHIFT 7U
+#define APP_CONTROL_HINT_HOLD_PROGRESS_SRC_MASK 0x1U
+#define APP_CONTROL_HINT_HOLD_PROGRESS_PCT_MASK 0x7FU
+#define APP_OVERLAY_HOLD_PROGRESS_TIMEOUT_MS 140U
 
 typedef enum
 {
@@ -86,9 +100,11 @@ typedef struct
 typedef struct
 {
     uint8_t current_mode;
+    uint8_t re1_mode_select;
     uint32_t last_tap_tick;
     uint8_t re1_ctrl;
     uint8_t re2_ctrl;
+    uint8_t modeparam_latch;
     uint32_t overlay_expire_tick;
 } app_runtime_state_t;
 
@@ -108,10 +124,12 @@ static uint32_t g_seqprogram_preview_off_tick;
 static uint8_t g_seqprogram_hold_active;
 static uint8_t g_seqprogram_hold_note;
 
-#define g_current_mode (g_runtime_state.current_mode)               //!< Macro to access the current mode from the runtime state
-#define g_last_tap_tick (g_runtime_state.last_tap_tick)             //!< Macro to access the last tap tick from the runtime state
-#define g_re1_ctrl (g_runtime_state.re1_ctrl)                       //!< Macro to access the RE1 control state from the runtime state
-#define g_re2_ctrl (g_runtime_state.re2_ctrl)                       //!< Macro to access the RE2 control state from the runtime state
+#define g_current_mode (g_runtime_state.current_mode)       //!< Macro to access the current mode from the runtime state
+#define g_re1_mode_select (g_runtime_state.re1_mode_select) //!< Macro to access the RE1 mode selection from the runtime state
+#define g_last_tap_tick (g_runtime_state.last_tap_tick)     //!< Macro to access the last tap tick from the runtime state
+#define g_re1_ctrl (g_runtime_state.re1_ctrl)               //!< Macro to access the RE1 control state from the runtime state
+#define g_re2_ctrl (g_runtime_state.re2_ctrl)               //!< Macro to access the RE2 control state from the runtime state
+#define g_modeparam_latch (g_runtime_state.modeparam_latch)
 #define g_overlay_expire_tick (g_runtime_state.overlay_expire_tick) //!< Macro to access the overlay expire tick from the runtime state
 
 static const uint16_t g_re1_ctrl_node_table[] = {
@@ -177,6 +195,7 @@ static void app_runtime_apply_tap_tempo(uint32_t now_tick);
 static uint8_t app_runtime_dispatch_re2_rotate_modeparam(const app_event_t *ev, uint8_t effective_mode);
 static uint8_t app_runtime_handle_re1_rotate(const app_event_t *ev);
 static uint8_t app_runtime_handle_re1_button_down(const app_event_t *ev);
+static uint8_t app_runtime_handle_re1_long_press(const app_event_t *ev, uint8_t effective_mode);
 static uint8_t app_runtime_handle_re2_rotate_normal(const app_event_t *ev);
 static uint8_t app_runtime_handle_re2_button_special_mode(const app_event_t *ev, uint8_t effective_mode);
 static uint8_t app_runtime_handle_re2_button_modeparam(const app_event_t *ev, uint8_t effective_mode);
@@ -190,10 +209,13 @@ static uint8_t app_runtime_handle_re2_long_press_setting(const app_event_t *ev);
 static uint8_t app_runtime_handle_re2_long_press_seqplay(const app_event_t *ev);
 static uint8_t app_runtime_dispatch_mode_action(const app_event_t *ev, uint8_t effective_mode, const struct app_runtime_mode_action_entry *entries, size_t entry_count);
 static uint8_t app_runtime_is_modeparam_active(uint8_t effective_mode);
+static uint8_t app_runtime_mode_supports_param_edit(uint8_t effective_mode);
+static void app_runtime_show_overlay_with_timeout(uint16_t msg_type, uint16_t value, uint32_t now_tick, uint32_t timeout_ms);
 static void app_runtime_toggle_sequencer_playing(void);
 static void app_runtime_enter_dfu_with_overlay(uint32_t now_tick);
 static void app_runtime_show_overlay(uint16_t msg_type, uint16_t value, uint32_t now_tick);
 static void app_runtime_show_overlay_midi_rx(uint16_t msg_type, uint16_t value, uint32_t now_tick, uint8_t midi_msg_type, uint8_t channel, uint8_t data1, uint8_t data2);
+static uint16_t app_runtime_encode_hold_progress_overlay(uint8_t source, uint8_t progress_pct);
 static void app_runtime_update_seqinput_auto_advance(void);
 static void app_runtime_seqprogram_stop_preview(void);
 static void app_runtime_seqprogram_start_preview(uint32_t now_tick);
@@ -204,10 +226,20 @@ static void app_runtime_process_seqprogram_preview(uint32_t now_tick);
 static void app_runtime_seqprogram_abort_active_notes(void);
 static uint8_t app_runtime_is_sequencer_mode(uint8_t mode);
 
+static uint16_t app_runtime_encode_hold_progress_overlay(uint8_t source, uint8_t progress_pct)
+{
+    uint16_t value = APP_CONTROL_HINT_HOLD_PROGRESS_BASE;
+
+    value |= (uint16_t)(((uint16_t)source & APP_CONTROL_HINT_HOLD_PROGRESS_SRC_MASK) << APP_CONTROL_HINT_HOLD_PROGRESS_SRC_SHIFT);
+    value |= (uint16_t)(progress_pct & APP_CONTROL_HINT_HOLD_PROGRESS_PCT_MASK);
+    return value;
+}
+
 static const app_input_router_handlers_t g_input_router_handlers = {
     .re1 = {
         .rotate = app_runtime_handle_re1_rotate,
         .button_down = app_runtime_handle_re1_button_down,
+        .long_press = app_runtime_handle_re1_long_press,
     },
     .re2 = {
         .rotate_modeparam = app_runtime_handle_re2_rotate_modeparam,
@@ -230,7 +262,13 @@ static uint8_t app_runtime_get_effective_mode(void)
 
 static uint8_t app_runtime_is_modeparam_active(uint8_t effective_mode)
 {
-    if ((g_re1_ctrl != APP_RE1_CTRL_MODE) || (effective_mode == IO_MIDI_MODE_STATE_FREEPLAY))
+    return app_runtime_mode_supports_param_edit(effective_mode);
+}
+
+static uint8_t app_runtime_mode_supports_param_edit(uint8_t effective_mode)
+{
+    if ((effective_mode == IO_MIDI_MODE_STATE_FREEPLAY) ||
+        (effective_mode >= IO_MIDI_MODE_STATE_COUNT))
     {
         return 0U;
     }
@@ -257,10 +295,12 @@ static void app_runtime_reset_default_state(void)
     g_midi_ctrl.program = 0;
     g_midi_ctrl.reverb = 64;
     g_current_mode = IO_MIDI_MODE_STATE_FREEPLAY;
+    g_re1_mode_select = g_current_mode;
     g_mode_cfg.metronome_bpm = 120;
     g_last_tap_tick = 0;
     g_re1_ctrl = APP_RE1_CTRL_VOLUME;
     g_re2_ctrl = APP_RE2_CTRL_REVERB;
+    g_modeparam_latch = 0U;
     g_mode_cfg.seqpara_select = APP_SEQPARA_SELECT_BPM;
     g_mode_cfg.seqpara_beat = 4;
     g_mode_cfg.seqpara_bar = 2;
@@ -493,9 +533,19 @@ static uint8_t app_runtime_handle_re2_button_modeparam_seqpara(const app_event_t
 
 static uint8_t app_runtime_handle_re2_long_press_seqinput(const app_event_t *ev)
 {
-    (void)ev;
+    uint8_t target_bar = 0U;
+
+    app_runtime_seqprogram_stop_preview();
     domain_sequencer_engine_clear_channel((uint8_t)g_mode_cfg.seqpara_sel_channel);
     app_runtime_send_all_notes_off();
+    if (g_mode_cfg.seqpara_bar != 0U)
+    {
+        target_bar = (uint8_t)(g_mode_cfg.seqpara_sel_bar % g_mode_cfg.seqpara_bar);
+    }
+
+    app_runtime_show_overlay(DOMAIN_OVERLAY_SEQ_INPUT_ACTION,
+                             (uint16_t)((1U << 8) | target_bar),
+                             ev->tick);
     return 1U;
 }
 
@@ -507,8 +557,8 @@ static uint8_t app_runtime_handle_re2_long_press_setting(const app_event_t *ev)
 
 static uint8_t app_runtime_handle_re2_long_press_seqplay(const app_event_t *ev)
 {
-    (void)ev;
     app_runtime_toggle_sequencer_playing();
+    app_runtime_show_overlay(DOMAIN_OVERLAY_SEQ_PLAY_ACTION, 0U, ev->tick);
     return 1U;
 }
 
@@ -519,6 +569,16 @@ static uint8_t app_runtime_handle_re2_long_press(const app_event_t *ev, uint8_t 
                                          g_re2_long_press_actions,
                                          (size_t)(sizeof(g_re2_long_press_actions) / sizeof(g_re2_long_press_actions[0]))) != 0U)
     {
+        return 1U;
+    }
+
+    if (app_runtime_mode_supports_param_edit(effective_mode) != 0U)
+    {
+        g_modeparam_latch = (uint8_t)!g_modeparam_latch;
+        app_runtime_show_overlay_with_timeout(DOMAIN_OVERLAY_CONTROL,
+                                              (g_modeparam_latch != 0U) ? APP_CONTROL_HINT_EDIT_ON : APP_CONTROL_HINT_EDIT_OFF,
+                                              ev->tick,
+                                              APP_OVERLAY_HINT_TIMEOUT_MS);
         return 1U;
     }
 
@@ -557,33 +617,34 @@ static uint8_t app_runtime_handle_re1_rotate(const app_event_t *ev)
 {
     if (g_re1_ctrl == APP_RE1_CTRL_MODE)
     {
-        uint8_t next_mode = g_current_mode;
+        uint8_t next_mode = g_re1_mode_select;
 
         if (ev->delta > 0)
         {
-            if ((uint8_t)(g_current_mode + 1U) < IO_MIDI_MODE_STATE_COUNT)
+            if ((uint8_t)(g_re1_mode_select + 1U) < IO_MIDI_MODE_STATE_COUNT)
             {
-                next_mode = (uint8_t)(g_current_mode + 1U);
+                next_mode = (uint8_t)(g_re1_mode_select + 1U);
             }
         }
         else if (ev->delta < 0)
         {
-            if (g_current_mode > IO_MIDI_MODE_STATE_FREEPLAY)
+            if (g_re1_mode_select > IO_MIDI_MODE_STATE_FREEPLAY)
             {
-                next_mode = (uint8_t)(g_current_mode - 1U);
+                next_mode = (uint8_t)(g_re1_mode_select - 1U);
             }
         }
 
-        if (next_mode != g_current_mode)
+        if (next_mode != g_re1_mode_select)
         {
-            app_runtime_request_mode_change(next_mode, ev->tick);
-            app_runtime_send_cc(0, IO_MIDI_CC_USER_MODECONTROL, next_mode);
-            app_runtime_show_overlay(DOMAIN_OVERLAY_MODE, next_mode, ev->tick);
+            g_re1_mode_select = next_mode;
+            app_runtime_show_overlay(DOMAIN_OVERLAY_MODE, g_re1_mode_select, ev->tick);
         }
         else
         {
-            app_runtime_show_overlay(DOMAIN_OVERLAY_MODE, g_current_mode, ev->tick);
+            app_runtime_show_overlay(DOMAIN_OVERLAY_MODE, g_re1_mode_select, ev->tick);
         }
+
+        g_modeparam_latch = 0U;
         return 1U;
     }
 
@@ -610,8 +671,60 @@ static uint8_t app_runtime_handle_re1_rotate(const app_event_t *ev)
 
 static uint8_t app_runtime_handle_re1_button_down(const app_event_t *ev)
 {
-    uint16_t next_ctrl = (uint16_t)((g_re1_ctrl + 1U) % APP_RE1_CTRL_COUNT);
+    if (g_re1_ctrl == APP_RE1_CTRL_MODE)
+    {
+        if (g_re1_mode_select != g_current_mode)
+        {
+            app_runtime_request_mode_change(g_re1_mode_select, ev->tick);
+            app_runtime_send_cc(0, IO_MIDI_CC_USER_MODECONTROL, g_re1_mode_select);
+        }
+        app_runtime_request_node_change(app_runtime_re1_ctrl_to_node(APP_RE1_CTRL_VOLUME), ev->tick);
+        app_runtime_show_overlay(DOMAIN_OVERLAY_MODE, g_re1_mode_select, ev->tick);
+        g_modeparam_latch = 0U;
+        return 1U;
+    }
+
+    uint16_t next_ctrl;
+    if (g_re1_ctrl == APP_RE1_CTRL_VOLUME)
+    {
+        next_ctrl = APP_RE1_CTRL_PROGRAM;
+    }
+    else
+    {
+        next_ctrl = APP_RE1_CTRL_VOLUME;
+    }
+
     app_runtime_request_node_change(app_runtime_re1_ctrl_to_node((uint8_t)next_ctrl), ev->tick);
+    g_modeparam_latch = 0U;
+
+    if (next_ctrl == APP_RE1_CTRL_VOLUME)
+    {
+        app_runtime_show_overlay_with_timeout(DOMAIN_OVERLAY_CONTROL, APP_CONTROL_HINT_RE1_VOLUME, ev->tick, APP_OVERLAY_HINT_TIMEOUT_MS);
+    }
+    else
+    {
+        app_runtime_show_overlay_with_timeout(DOMAIN_OVERLAY_CONTROL, APP_CONTROL_HINT_RE1_PROGRAM, ev->tick, APP_OVERLAY_HINT_TIMEOUT_MS);
+    }
+
+    return 1U;
+}
+
+static uint8_t app_runtime_handle_re1_long_press(const app_event_t *ev, uint8_t effective_mode)
+{
+    (void)effective_mode;
+
+    g_modeparam_latch = 0U;
+
+    if (g_re1_ctrl != APP_RE1_CTRL_MODE)
+    {
+        app_runtime_request_node_change(app_runtime_re1_ctrl_to_node(APP_RE1_CTRL_MODE), ev->tick);
+        g_re1_mode_select = g_current_mode;
+        app_runtime_show_overlay_with_timeout(DOMAIN_OVERLAY_CONTROL, APP_CONTROL_HINT_RE1_MODE, ev->tick, APP_OVERLAY_HINT_TIMEOUT_MS);
+        return 1U;
+    }
+
+    g_re1_mode_select = g_current_mode;
+    app_runtime_show_overlay(DOMAIN_OVERLAY_MODE, g_re1_mode_select, ev->tick);
     return 1U;
 }
 
@@ -1150,6 +1263,11 @@ static void app_runtime_process_metronome_click(void)
  */
 static void app_runtime_show_overlay(uint16_t msg_type, uint16_t value, uint32_t now_tick)
 {
+    app_runtime_show_overlay_with_timeout(msg_type, value, now_tick, APP_OVERLAY_TIMEOUT_MS);
+}
+
+static void app_runtime_show_overlay_with_timeout(uint16_t msg_type, uint16_t value, uint32_t now_tick, uint32_t timeout_ms)
+{
     int16_t msg = (int16_t)(((msg_type & 0x0FU) << 12) | (value & 0x0FFFU));
 
     if ((msg_type != DOMAIN_OVERLAY_VOLUME) &&
@@ -1159,7 +1277,7 @@ static void app_runtime_show_overlay(uint16_t msg_type, uint16_t value, uint32_t
     }
 
     domain_display_model_set_state(DOMAIN_DISPLAY_OVERLAY, msg);
-    g_overlay_expire_tick = now_tick + APP_OVERLAY_TIMEOUT_MS;
+    g_overlay_expire_tick = now_tick + timeout_ms;
 }
 
 /**
@@ -1234,6 +1352,12 @@ static void app_runtime_handle_cmd_mode_change(const app_command_t *cmd)
     }
 
     g_current_mode = cmd->payload.mode;
+    g_re1_mode_select = g_current_mode;
+
+    if (app_runtime_mode_supports_param_edit(g_current_mode) == 0U)
+    {
+        g_modeparam_latch = 0U;
+    }
 }
 
 /**
@@ -1491,8 +1615,16 @@ static uint8_t app_runtime_handle_re2_button_special_mode(const app_event_t *ev,
 {
     if (effective_mode == IO_MIDI_MODE_STATE_SEQUENCER_PROGRAM)
     {
-        app_runtime_seqprogram_handle_button_down(ev->tick);
+        if (ev->type == EV_BUTTON_DOWN)
+        {
+            app_runtime_seqprogram_handle_button_down(ev->tick);
+        }
         return 1U;
+    }
+
+    if (ev->type != EV_SHORT_PRESS)
+    {
+        return 0U;
     }
 
     if (effective_mode == IO_MIDI_MODE_STATE_SEQUENCER_REC)
@@ -1502,6 +1634,9 @@ static uint8_t app_runtime_handle_re2_button_special_mode(const app_event_t *ev,
 
         app_runtime_get_seqinput_selection(&input_action, &target_bar);
         app_runtime_apply_seqinput_action(input_action, target_bar);
+        app_runtime_show_overlay(DOMAIN_OVERLAY_SEQ_INPUT_ACTION,
+                                 (uint16_t)((((uint16_t)input_action & 0x3U) << 8) | ((uint16_t)target_bar & 0xFFU)),
+                                 ev->tick);
 
         return 1U;
     }
@@ -1509,6 +1644,7 @@ static uint8_t app_runtime_handle_re2_button_special_mode(const app_event_t *ev,
     if (effective_mode == IO_MIDI_MODE_STATE_SEQUENCER_PLAY)
     {
         app_runtime_handle_seqplay_button_action();
+        app_runtime_show_overlay(DOMAIN_OVERLAY_SEQ_PLAY_ACTION, g_mode_cfg.seqpara_playmode, ev->tick);
         return 1U;
     }
 
@@ -1581,14 +1717,15 @@ static uint8_t app_runtime_handle_re2_button_normal(const app_event_t *ev)
     uint16_t next_ctrl = (uint16_t)((g_re2_ctrl + 1U) % APP_RE2_CTRL_COUNT);
 
     app_runtime_request_node_change(app_runtime_re2_ctrl_to_node((uint8_t)next_ctrl), ev->tick);
+    g_modeparam_latch = 0U;
 
     if (next_ctrl == APP_RE2_CTRL_CHANNEL)
     {
-        app_runtime_show_overlay(DOMAIN_OVERLAY_CHANNEL, g_midi_ctrl.channel, ev->tick);
+        app_runtime_show_overlay_with_timeout(DOMAIN_OVERLAY_CONTROL, APP_CONTROL_HINT_RE2_CHANNEL, ev->tick, APP_OVERLAY_HINT_TIMEOUT_MS);
     }
     else
     {
-        app_runtime_show_overlay(DOMAIN_OVERLAY_REVERB, g_midi_ctrl.reverb, ev->tick);
+        app_runtime_show_overlay_with_timeout(DOMAIN_OVERLAY_CONTROL, APP_CONTROL_HINT_RE2_REVERB, ev->tick, APP_OVERLAY_HINT_TIMEOUT_MS);
     }
 
     return 1U;
@@ -1601,9 +1738,39 @@ static uint8_t app_runtime_handle_re2_button_normal(const app_event_t *ev)
 void app_runtime_handle_input_event(const app_event_t *ev)
 {
     uint8_t effective_mode;
+    uint8_t progress_step;
+    uint8_t source_idx;
 
     if (ev == 0)
     {
+        return;
+    }
+
+    if (ev->type == EV_LONG_PRESS_PROGRESS)
+    {
+        if (ev->delta < 0)
+        {
+            progress_step = 0U;
+        }
+        else if (ev->delta > 32)
+        {
+            progress_step = 32U;
+        }
+        else
+        {
+            progress_step = (uint8_t)ev->delta;
+        }
+
+        if (progress_step < 16U)
+        {
+            return;
+        }
+
+        source_idx = (ev->source == APP_INPUT_SOURCE_RE2) ? 1U : 0U;
+        app_runtime_show_overlay_with_timeout(DOMAIN_OVERLAY_CONTROL,
+                                              app_runtime_encode_hold_progress_overlay(source_idx, progress_step),
+                                              ev->tick,
+                                              APP_OVERLAY_HOLD_PROGRESS_TIMEOUT_MS);
         return;
     }
 

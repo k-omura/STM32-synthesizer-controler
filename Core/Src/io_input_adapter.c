@@ -14,6 +14,7 @@
 
 #define IO_INPUT_QUEUE_CAPACITY (16)  //!< Capacity of the input event queue
 #define IO_INPUT_LONG_PRESS_MS (600U) //!< Long press threshold in milliseconds
+#define IO_INPUT_LONG_PRESS_STEPS (32U)
 
 typedef enum
 {
@@ -31,6 +32,9 @@ typedef struct
 
 static io_input_adapter_state_t g_state;
 static uint8_t g_btn_pressed_state[IO_INPUT_INDEX_COUNT];
+static uint8_t g_long_press_step[IO_INPUT_INDEX_COUNT];
+static uint8_t g_short_press_pending[IO_INPUT_INDEX_COUNT];
+static uint32_t g_button_down_tick[IO_INPUT_INDEX_COUNT];
 
 /**
  * @brief Pushes an event into the input adapter's event queue.
@@ -46,6 +50,28 @@ static void io_input_adapter_push_event(const app_event_t *ev)
 
     g_state.queue[g_state.write_pos] = *ev;
     g_state.write_pos = next;
+}
+
+static void io_input_adapter_emit_short_press(uint8_t idx, uint32_t now_tick)
+{
+    app_event_t ev;
+
+    if (g_short_press_pending[idx] == 0U)
+    {
+        return;
+    }
+
+    if ((now_tick - g_button_down_tick[idx]) < IO_INPUT_LONG_PRESS_MS)
+    {
+        memset(&ev, 0, sizeof(ev));
+        ev.type = EV_SHORT_PRESS;
+        ev.source = (idx == IO_INPUT_INDEX_RE1) ? APP_INPUT_SOURCE_RE1 : APP_INPUT_SOURCE_RE2;
+        ev.code = (uint16_t)idx;
+        ev.tick = now_tick;
+        io_input_adapter_push_event(&ev);
+    }
+
+    g_short_press_pending[idx] = 0U;
 }
 
 static void io_input_adapter_emit_long_press(uint8_t idx, uint32_t now_tick)
@@ -66,8 +92,46 @@ static void io_input_adapter_emit_long_press(uint8_t idx, uint32_t now_tick)
         ev.code = (uint16_t)idx;
         ev.tick = now_tick;
         io_input_adapter_push_event(&ev);
+        g_short_press_pending[idx] = 0U;
         btn->tick = 0;
     }
+}
+
+static void io_input_adapter_emit_long_press_progress(uint8_t idx, uint32_t now_tick)
+{
+    app_event_t ev;
+    io_input_driver_btn_t *btn = io_input_driver_get_btn(idx);
+    uint32_t held_ms;
+    uint8_t step;
+    uint8_t progress;
+
+    if ((btn == 0) || (btn->state != IO_INPUT_DRIVER_BTN_PUSHING) || (btn->tick == 0U))
+    {
+        return;
+    }
+
+    held_ms = now_tick - btn->tick;
+    if (held_ms >= IO_INPUT_LONG_PRESS_MS)
+    {
+        return;
+    }
+
+    step = (uint8_t)((held_ms * IO_INPUT_LONG_PRESS_STEPS) / IO_INPUT_LONG_PRESS_MS);
+    if (step == g_long_press_step[idx])
+    {
+        return;
+    }
+
+    g_long_press_step[idx] = step;
+    progress = (uint8_t)((held_ms * IO_INPUT_LONG_PRESS_STEPS) / IO_INPUT_LONG_PRESS_MS);
+
+    memset(&ev, 0, sizeof(ev));
+    ev.type = EV_LONG_PRESS_PROGRESS;
+    ev.source = (idx == IO_INPUT_INDEX_RE1) ? APP_INPUT_SOURCE_RE1 : APP_INPUT_SOURCE_RE2;
+    ev.code = (uint16_t)idx;
+    ev.delta = (int16_t)progress;
+    ev.tick = now_tick;
+    io_input_adapter_push_event(&ev);
 }
 
 /**
@@ -82,6 +146,9 @@ void io_input_adapter_init(void)
     for (i = 0; i < IO_INPUT_INDEX_COUNT; i++)
     {
         g_btn_pressed_state[i] = io_input_driver_btn_check(i);
+        g_long_press_step[i] = 0U;
+        g_short_press_pending[i] = 0U;
+        g_button_down_tick[i] = 0U;
     }
 }
 
@@ -100,6 +167,16 @@ void io_input_adapter_on_timer(uint32_t now_tick)
 
         if (pressed != g_btn_pressed_state[i])
         {
+            if (pressed != 0U)
+            {
+                g_short_press_pending[i] = 1U;
+                g_button_down_tick[i] = now_tick;
+            }
+            else
+            {
+                io_input_adapter_emit_short_press(i, now_tick);
+            }
+
             memset(&ev, 0, sizeof(ev));
             ev.type = (pressed != 0U) ? EV_BUTTON_DOWN : EV_BUTTON_UP;
             ev.source = (i == IO_INPUT_INDEX_RE1) ? APP_INPUT_SOURCE_RE1 : APP_INPUT_SOURCE_RE2;
@@ -107,8 +184,10 @@ void io_input_adapter_on_timer(uint32_t now_tick)
             ev.tick = now_tick;
             io_input_adapter_push_event(&ev);
             g_btn_pressed_state[i] = pressed;
+            g_long_press_step[i] = 0U;
         }
 
+        io_input_adapter_emit_long_press_progress(i, now_tick);
         io_input_adapter_emit_long_press(i, now_tick);
 
         io_input_driver_rot_t *rot = io_input_driver_get_rot(i);
