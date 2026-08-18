@@ -27,6 +27,7 @@ extern const uint8_t seq_icon[][8];
 /* Private functions */
 static void io_display_driver_translate(void);
 static void io_display_driver_translate_col(uint8_t code8, uint8_t *fbraw_start);
+static void io_display_driver_draw_bitmap_8x8(int16_t x, int16_t y, const uint8_t *bitmap, io_display_driver_color_t *color);
 
 /**
  * @brief Initializes the display driver. This function sets up the SPI handle and LED type.
@@ -159,24 +160,6 @@ void io_display_driver_pixel(int16_t x, int16_t y, io_display_driver_color_t *co
 }
 
 /**
- * @brief Sets a pixel to a random color in the display driver. This function generates a random color and updates the specified pixel.
- * @param x The x-coordinate of the pixel.
- * @param y The y-coordinate of the pixel.
- */
-void io_display_driver_pixel_random(int16_t x, int16_t y)
-{
-    uint8_t temp;
-    io_display_driver_color_t pixel;
-
-    temp = (uint8_t)rand();
-    pixel.green = temp & 0x03;
-    pixel.red = (temp >> 2) & 0x03;
-    pixel.blue = (temp >> 4) & 0x03;
-
-    io_display_driver_pixel(x, y, &pixel);
-}
-
-/**
  * @brief Clears the display driver. This function sets all pixels to the specified color.
  * @param color Pointer to the color to set.
  */
@@ -225,48 +208,49 @@ void io_display_driver_ybar(int16_t x, int16_t y, uint8_t length, io_display_dri
 }
 
 /**
- * @brief Fills the display driver with a mosaic pattern. This function sets each pixel to a random color.
- */
-void io_display_driver_mosaic(void)
-{
-    io_display_driver_color_t *fb = g_fb;
-    for (uint16_t i = 0; i < IO_DISPLAY_DRIVER_PIXELS; i++)
-    {
-        uint8_t temp = (uint8_t)rand();
-        fb->green = temp & 0x01;
-        fb->red = (temp >> 2) & 0x01;
-        fb->blue = (temp >> 4) & 0x01;
-        fb++;
-    }
-}
-
-/**
  * @brief Draws the Otakuro logo in the display driver. This function sets the pixels of the logo to the specified color.
  * @param count The logo variant to draw.
  * @param color Pointer to the color to set.
  */
+static void io_display_driver_draw_bitmap_8x8(int16_t x, int16_t y, const uint8_t *bitmap, io_display_driver_color_t *color)
+{
+    for (uint8_t col = 0U; col < 8U; col++)
+    {
+        uint8_t bits = bitmap[col];
+
+        for (uint8_t row = 0U; row < 8U; row++)
+        {
+            if ((bits & 0x80U) != 0U)
+            {
+                io_display_driver_pixel((int16_t)(x + (int16_t)col), (int16_t)(y + (int16_t)row), color);
+            }
+            bits <<= 1U;
+        }
+    }
+}
+
 void io_display_driver_logo(uint8_t count, io_display_driver_color_t *color)
 {
-    uint8_t temp;
+
     if ((count > 1) || (color == 0))
     {
         return;
     }
 
+    // Logo is 32x8 bitmap (4 rows of 8x8)
     for (uint16_t i = 0; i < 32; i++)
     {
-        temp = OTAKURO_LOGO[count][i];
+        uint8_t temp = OTAKURO_LOGO[count][i];
         for (uint8_t b = 0; b < 8; b++)
         {
-            if (temp & 0x80)
+            if ((temp & 0x80U) != 0U)
             {
                 io_display_driver_pixel(i, b, color);
             }
-            temp <<= 1;
+            temp <<= 1U;
         }
     }
 }
-
 /**
  * @brief Draws an icon in the display driver. This function sets the pixels of the specified icon to the specified color.
  * @param icon The icon to draw.
@@ -274,24 +258,12 @@ void io_display_driver_logo(uint8_t count, io_display_driver_color_t *color)
  */
 void io_display_driver_icon(io_display_driver_icon_t icon, io_display_driver_color_t *color)
 {
-    uint8_t temp;
     if ((icon >= 3) || (color == 0))
     {
         return;
     }
 
-    for (uint16_t i = 0; i < 8; i++)
-    {
-        temp = seq_icon[icon][i];
-        for (uint8_t b = 0; b < 8; b++)
-        {
-            if (temp & 0x80)
-            {
-                io_display_driver_pixel(i, b, color);
-            }
-            temp <<= 1;
-        }
-    }
+    io_display_driver_draw_bitmap_8x8(0, 0, seq_icon[icon], color);
 }
 
 /**

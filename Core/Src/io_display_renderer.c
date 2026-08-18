@@ -85,10 +85,16 @@ static const io_display_text_entry_t g_control_hint_texts[] = {
     {"PROGRAM", 7},
     {"CHANNEL", 7},
     {"REVERB", 6},
-    {"EDITOFF", 7},
-    {"EDIT ON", 7},
+    {"MUTE ON", 7},
+    {"MUTEOFF", 7},
 };
 
+/**
+ * @brief Get the note color from the velocity.
+ *
+ * @param velocity The velocity of the note.
+ * @return The corresponding display driver color.
+ */
 static io_display_driver_color_t io_display_renderer_note_color_from_velocity(uint8_t velocity)
 {
     io_display_driver_color_t out;
@@ -105,6 +111,9 @@ static io_display_driver_color_t io_display_renderer_note_color_from_velocity(ui
     return out;
 }
 
+/**
+ * @brief Update the note animation state.
+ */
 static void io_display_renderer_update_note_animation(void)
 {
     domain_display_midi_context_t midi_ctx;
@@ -137,6 +146,11 @@ static void io_display_renderer_update_note_animation(void)
     }
 }
 
+/**
+ * @brief Draw the note on the display.
+ *
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_note(io_display_driver_color_t *col_text)
 {
     uint32_t now_tick = HAL_GetTick();
@@ -176,6 +190,12 @@ static void io_display_renderer_draw_note(io_display_driver_color_t *col_text)
     (void)col_text;
 }
 
+/**
+ * @brief Convert a MIDI color to a display driver color.
+ *
+ * @param c The MIDI color.
+ * @return The corresponding display driver color.
+ */
 static io_display_driver_color_t io_display_renderer_color_from_midi(app_midi_color_t c)
 {
     io_display_driver_color_t out;
@@ -186,6 +206,9 @@ static io_display_driver_color_t io_display_renderer_color_from_midi(app_midi_co
     return out;
 }
 
+/**
+ * @brief Draw the BLE indicator on the display.
+ */
 static void io_display_renderer_draw_ble_indicator(void)
 {
     if (HAL_GPIO_ReadPin(bleConnect_GPIO_Port, bleConnect_Pin) == GPIO_PIN_SET)
@@ -195,6 +218,14 @@ static void io_display_renderer_draw_ble_indicator(void)
     }
 }
 
+/**
+ * @brief Draw the sequencer channel persistent graphics on the display with a specified lane length.
+ *
+ * @param ch The channel to draw.
+ * @param lane_length The length of the channel lane.
+ * @param col_lane The color of the lane.
+ * @param col_bank_dot The color of the bank dot.
+ */
 static void io_display_renderer_draw_seq_channel_lane_limited(uint8_t ch, uint8_t lane_length, io_display_driver_color_t *col_lane, io_display_driver_color_t *col_bank_dot)
 {
     uint8_t row = (uint8_t)(ch % 8U);
@@ -204,6 +235,13 @@ static void io_display_renderer_draw_seq_channel_lane_limited(uint8_t ch, uint8_
     io_display_driver_pixel(7, (int16_t)bank_dot_y, col_bank_dot);
 }
 
+/**
+ * @brief Draw the recorded notes for the sequencer on the display.
+ *
+ * @param state The current display state.
+ * @param bar_index The index of the bar to draw.
+ * @param bar_period The period of the bar.
+ */
 static void io_display_renderer_draw_sequencer_recorded_notes(domain_display_state_t state, uint8_t bar_index, uint32_t bar_period)
 {
     uint16_t i;
@@ -284,6 +322,12 @@ static void io_display_renderer_draw_sequencer_recorded_notes(domain_display_sta
     }
 }
 
+/**
+ * @brief Draw the sequencer channel persistent graphics on the display with a specified lane length.
+ *
+ * @param state The current display state.
+ * @param lane_length The length of the channel lane.
+ */
 static void io_display_renderer_draw_seq_channel_persistent_with_length(domain_display_state_t state, uint8_t lane_length)
 {
     io_display_driver_color_t col_lane = io_display_renderer_color_from_midi(APP_MIDI_COLOR_CURSORY);
@@ -301,35 +345,63 @@ static void io_display_renderer_draw_seq_channel_persistent_with_length(domain_d
     }
 }
 
+/**
+ * @brief Draw the sequencer channel persistent graphics on the display.
+ *
+ * @param state The current display state.
+ */
 static void io_display_renderer_draw_seq_channel_persistent(domain_display_state_t state)
 {
     io_display_renderer_draw_seq_channel_persistent_with_length(state, 32U);
 }
 
+/**
+ * @brief Draw the sequencer parameter BPM value on the display.
+ *
+ * @param para_val The BPM parameter value.
+ * @param col_text The color for the text.
+ */
+static void io_display_renderer_draw_seqpara_value_with_format(const char *label, uint8_t label_len, uint8_t value_width, uint16_t para_val, io_display_driver_color_t *col_text)
+{
+    char text[12];
+
+    snprintf(text, sizeof(text), "%.*s%*u", label_len, label, value_width, para_val);
+    io_display_driver_string(9, 1, text, (uint8_t)strlen(text), col_text, 0);
+}
+
 static void io_display_renderer_draw_seqpara_value_bpm(uint16_t para_val, io_display_driver_color_t *col_text)
 {
-    char text[12];
-
-    snprintf(text, sizeof(text), "BPM%3u", para_val);
-    io_display_driver_string(9, 1, text, (uint8_t)strlen(text), col_text, 0);
+    io_display_renderer_draw_seqpara_value_with_format("BPM", 3U, 3U, para_val, col_text);
 }
 
+/**
+ * @brief Draw the sequencer parameter BPM value on the display.
+ *
+ * @param para_val The BPM parameter value.
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_seqpara_value_beat(uint16_t para_val, io_display_driver_color_t *col_text)
 {
-    char text[12];
-
-    snprintf(text, sizeof(text), "BEAT%2u", para_val);
-    io_display_driver_string(9, 1, text, (uint8_t)strlen(text), col_text, 0);
+    io_display_renderer_draw_seqpara_value_with_format("BEAT", 4U, 2U, para_val, col_text);
 }
 
+/**
+ * @brief Draw the sequencer parameter bar value on the display.
+ *
+ * @param para_val The bar parameter value.
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_seqpara_value_bar(uint16_t para_val, io_display_driver_color_t *col_text)
 {
-    char text[12];
-
-    snprintf(text, sizeof(text), "BAR %2u", para_val);
-    io_display_driver_string(9, 1, text, (uint8_t)strlen(text), col_text, 0);
+    io_display_renderer_draw_seqpara_value_with_format("BAR ", 4U, 2U, para_val, col_text);
 }
 
+/**
+ * @brief Draw the sequencer parameter channel value on the display.
+ *
+ * @param para_val The channel parameter value.
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_seqpara_value_channel(uint16_t para_val, io_display_driver_color_t *col_text)
 {
     uint8_t ch = (uint8_t)((para_val > 0U) ? (para_val - 1U) : 0U);
@@ -339,6 +411,12 @@ static void io_display_renderer_draw_seqpara_value_channel(uint16_t para_val, io
     (void)col_text;
 }
 
+/**
+ * @brief Draw the sequencer parameter metronome value on the display.
+ *
+ * @param para_val The metronome parameter value.
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_seqpara_value_metronome(uint16_t para_val, io_display_driver_color_t *col_text)
 {
     const io_display_text_entry_t *entry = &g_seq_metronome_texts[(para_val == 0U) ? 0U : 1U];
@@ -354,6 +432,11 @@ static const io_display_seqpara_value_draw_fn_t g_seqpara_value_draw_table[] = {
     io_display_renderer_draw_seqpara_value_metronome,
 };
 
+/**
+ * @brief Draw the metronome on the display.
+ *
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_metronome(io_display_driver_color_t *col_text)
 {
     uint32_t beat_period = domain_sequencer_engine_get_beat_period();
@@ -382,11 +465,23 @@ static void io_display_renderer_draw_metronome(io_display_driver_color_t *col_te
     io_display_driver_string(4, 3, text, (uint8_t)strlen(text), col_text, 0);
 }
 
+/**
+ * @brief Draw the base bar on the display.
+ *
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_base_bar(io_display_driver_color_t *col_text)
 {
     io_display_driver_ybar(8, 0, 8, col_text);
 }
 
+/**
+ * @brief Draw the sequencer left pane on the display.
+ *
+ * @param state The current display state.
+ * @param col_text The color for the text.
+ * @param draw_divider Flag indicating whether to draw the divider.
+ */
 static void io_display_renderer_draw_sequencer_left_pane(domain_display_state_t state, io_display_driver_color_t *col_text, uint8_t draw_divider)
 {
     const domain_sequencer_state_t *seq = domain_sequencer_engine_get_state();
@@ -417,6 +512,13 @@ static void io_display_renderer_draw_sequencer_left_pane(domain_display_state_t 
     }
 }
 
+/**
+ * @brief Draw the sequencer left pane on the display.
+ *
+ * @param state The current display state.
+ * @param col_text The color for the text.
+ * @param draw_divider Flag indicating whether to draw the divider.
+ */
 static void io_display_renderer_draw_sequencer_bar_meter(domain_display_state_t state)
 {
     const domain_sequencer_state_t *seq = domain_sequencer_engine_get_state();
@@ -500,6 +602,12 @@ static void io_display_renderer_draw_sequencer_bar_meter(domain_display_state_t 
     }
 }
 
+/**
+ * @brief Draw the sequencer graphics on the display.
+ *
+ * @param state The current display state.
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_sequencer_graphics(domain_display_state_t state, io_display_driver_color_t *col_text)
 {
     const domain_sequencer_state_t *seq = domain_sequencer_engine_get_state();
@@ -588,11 +696,23 @@ static void io_display_renderer_draw_sequencer_graphics(domain_display_state_t s
     io_display_renderer_draw_sequencer_recorded_notes(state, draw_bar, bar_period);
 }
 
+/**
+ * @brief Draw the sequencer graphics on the display.
+ *
+ * @param state The current display state.
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_base_setting(io_display_driver_color_t *col_text)
 {
     io_display_driver_string(2, 1, "GOTODFU", 7, col_text, 0);
 }
 
+/**
+ * @brief Draw the base display for the given state.
+ *
+ * @param state The current display state.
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_base(domain_display_state_t state, io_display_driver_color_t *col_text)
 {
     switch (state)
@@ -618,6 +738,12 @@ static void io_display_renderer_draw_base(domain_display_state_t state, io_displ
     }
 }
 
+/**
+ * @brief Draw the overlay for the MIDI channel on the display.
+ *
+ * @param value The MIDI channel value.
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_overlay_channel(uint16_t value, io_display_driver_color_t *col_text)
 {
     char text[12];
@@ -640,6 +766,12 @@ static void io_display_renderer_draw_overlay_channel(uint16_t value, io_display_
     io_display_driver_xbar((int16_t)(2U * value), 7, 2, col_text);
 }
 
+/**
+ * @brief Draw the overlay for the MIDI channel on the display.
+ *
+ * @param value The MIDI channel value.
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_overlay_seq_input(uint16_t value, io_display_driver_color_t *col_text)
 {
     uint16_t action = (uint16_t)((value >> 8) & 0x3U);
@@ -650,6 +782,12 @@ static void io_display_renderer_draw_overlay_seq_input(uint16_t value, io_displa
     io_display_driver_string(9, 1, entry->text, entry->len, col_text, 0);
 }
 
+/**
+ * @brief Draw the overlay for sequencer input on the display.
+ *
+ * @param value The value containing the input action and target bar.
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_overlay_seq_play(uint16_t value, io_display_driver_color_t *col_text)
 {
     const domain_sequencer_state_t *seq = domain_sequencer_engine_get_state();
@@ -675,12 +813,24 @@ static void io_display_renderer_draw_overlay_seq_play(uint16_t value, io_display
     io_display_driver_string(9, 1, text, (uint8_t)strlen(text), col_text, 0);
 }
 
+/**
+ * @brief Draw the overlay for sequencer play on the display.
+ *
+ * @param value The value containing the play state.
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_overlay_seqpara_select(uint16_t value, io_display_driver_color_t *col_text)
 {
     const io_display_text_entry_t *entry = &g_seqpara_select_texts[(value <= IO_DISPLAY_SEQPARA_METRONOME) ? value : IO_DISPLAY_SEQPARA_METRONOME];
     io_display_driver_string(9, 1, entry->text, entry->len, col_text, 0);
 }
 
+/**
+ * @brief Draw the overlay for sequencer parameter value on the display.
+ *
+ * @param value The value containing the parameter and its value.
+ * @param col_text The color for the text.
+ */
 static void io_display_renderer_draw_overlay_seqpara_value(uint16_t value, io_display_driver_color_t *col_text)
 {
     uint16_t para = (uint16_t)((value >> 9) & 0x7U);
@@ -706,6 +856,13 @@ static void io_display_renderer_draw_overlay_seqpara_value(uint16_t value, io_di
     io_display_driver_string(8, 1, text, (uint8_t)strlen(text), col_text, 0);
 }
 
+/**
+ * @brief Draw the overlay on the display.
+ *
+ * @param message The message containing the overlay type and value.
+ * @param col_text The color for the text.
+ * @param col_accent The color for the accent.
+ */
 static void io_display_renderer_draw_overlay(int16_t message, io_display_driver_color_t *col_text, io_display_driver_color_t *col_accent)
 {
     uint8_t type = (uint8_t)((message >> 12) & 0x0FU);
@@ -746,7 +903,7 @@ static void io_display_renderer_draw_overlay(int16_t message, io_display_driver_
         {
             uint8_t hold_step = (uint8_t)(value & 0x7FU);
 
-            io_display_driver_string(2, 1, "HOLD", 4, col_text, 0);
+            // io_display_driver_string(2, 1, "HOLD", 4, col_text, 0);
 
             if (hold_step > 32U)
             {
@@ -825,6 +982,13 @@ static void io_display_renderer_draw_overlay(int16_t message, io_display_driver_
     }
 }
 
+/**
+ * @brief Draw the base overlay on the display.
+ *
+ * @param message The message containing the overlay type and value.
+ * @param col_text The color for the text.
+ * @return uint8_t Returns 1 if the overlay was drawn, 0 otherwise.
+ */
 static uint8_t io_display_renderer_draw_overlay_base(int16_t message, io_display_driver_color_t *col_text)
 {
     uint8_t type = (uint8_t)((message >> 12) & 0x0FU);
@@ -871,6 +1035,11 @@ static uint8_t io_display_renderer_draw_overlay_base(int16_t message, io_display
     }
 }
 
+/**
+ * @brief Initialize the display renderer.
+ *
+ * @param hspi_neopixel The SPI handle for the NeoPixel.
+ */
 void io_display_renderer_init(SPI_HandleTypeDef *hspi_neopixel)
 {
     if (hspi_neopixel == 0)
@@ -886,16 +1055,31 @@ void io_display_renderer_init(SPI_HandleTypeDef *hspi_neopixel)
     memset(g_note_anim, 0, sizeof(g_note_anim));
 }
 
+/**
+ * @brief Set the sequencer channel for the display renderer.
+ *
+ * @param channel The sequencer channel to set.
+ */
 void io_display_renderer_set_seq_channel(uint8_t channel)
 {
     g_seqpara_channel = (uint8_t)(channel & 0x0FU);
 }
 
+/**
+ * @brief Set the sequencer play mode for the display renderer.
+ *
+ * @param playmode The sequencer play mode to set.
+ */
 void io_display_renderer_set_seq_playmode(uint8_t playmode)
 {
     g_seqplay_mode = (playmode > IO_DISPLAY_MIDI_CHANNEL_COUNT) ? IO_DISPLAY_MIDI_CHANNEL_COUNT : playmode;
 }
 
+/**
+ * @brief Render the display based on the current model.
+ *
+ * @param model The display model containing the state and message.
+ */
 void io_display_renderer_render(const domain_display_model_t *model)
 {
     io_display_driver_color_t col_bg = io_display_renderer_color_from_midi(APP_MIDI_COLOR_RESET);
@@ -931,6 +1115,9 @@ void io_display_renderer_render(const domain_display_model_t *model)
     io_display_renderer_draw_ble_indicator();
 }
 
+/**
+ * @brief Flush the display renderer, ensuring all pending updates are applied.
+ */
 void io_display_renderer_flush(void)
 {
     if (g_hspi_neopixel == 0)
