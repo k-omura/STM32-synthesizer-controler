@@ -1604,6 +1604,8 @@ static uint8_t app_runtime_handle_re2_button_special_mode(const app_event_t *ev,
         if (g_mode_cfg.setting == 0U)
         {
             app_runtime_show_overlay(DOMAIN_OVERLAY_SETTING, 0U, ev->tick);
+            app_midi_modeControl(IO_MIDI_MODECONTROL_GOTODFU);
+            io_midi_transport_service();
             (void)io_system_control_goto_dfu();
         }
         return 1U;

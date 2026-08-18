@@ -314,6 +314,7 @@ typedef struct {
 - HELLO表示復帰
 - BLE表示
 - DFU遷移
+- GOTODFU操作時の `CC119, value=100` SPI3送信後のDFU遷移
 - SPI5 RX -> SPI3 TX 経路
 
 ### 14.4 判定基準

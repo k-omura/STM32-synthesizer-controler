@@ -85,7 +85,7 @@
 	- SEQUENCER_PROGRAM: RE2回転で入力NoteNum変更(変更時にNoteOnし100ms後にNoteOff)、RE2押下でNoteOn、RE2離上でNoteOff(同時に録音)
 	- SEQUENCER_REC: RE2ボタンでUNDO/CH CLEAR実行
 	- SEQUENCER_PLAY: RE2ボタンで再生トグルまたはミュート切替
-	- SETTING: RE2ボタンで設定実行(現状はDFU遷移)
+	- SETTING: RE2ボタンで設定実行(現状はDFU遷移)。GOTODFU実行時はシンセサイザへMIDIモード制御CC119、value=100 (`IO_MIDI_MODECONTROL_GOTODFU`) をSPI3で送信してからローカルDFUへ遷移する。
 
 ### 5.3 Application層
 - `app_runtime` がイベント消費、モード状態、オーバーレイ期限、シーケンサ操作を統括する。
@@ -101,7 +101,7 @@
 - `io_midi_transport`: SPI5割り込み受信キューとSPI3 DMA送信キューを管理する。
 - `io_display_renderer`: Display Modelを8x32描画命令へ変換する。
 - `io_display_driver`: フレームバッファをLEDシリアルデータへ変換しSPI2 DMA送信する。
-- `io_system_control`: 割り込みとクロックを停止してSystem MemoryのDFUへ遷移する。
+- `io_system_control`: 割り込みとクロックを停止してSystem MemoryのDFUへ遷移する。遷移前のシンセサイザ向けGOTODFU MIDI送信は `app_runtime` が実行する。
 
 ## 6. データフロー仕様
 
@@ -154,7 +154,7 @@ USB MIDI入力は `USBH_MIDI_ReceiveCallback()` で4バイト単位に解析し�
 - `seqpara_playmode=0` では `PLAY` 文字は表示しない。
 - `seqpara_playmode>0` のときは、`MUTE%u` 文字を表示せず `xbar(x=0, y=((playmode-1)%8), len=32)` を表示する。
 - `playmode` が `1..8` か `9..16` かは、区切り線左(`x=7`)の識別ドット(`y=0` / `y=1`)で示す。
-| SETTING | SETTING | 設定実行。現状はDFU遷移のみ。 | RE2ボタンで実行。現在の項目は GOTODFU。 |
+| SETTING | SETTING | 設定実行。現状はDFU遷移のみ。 | RE2ボタンで実行。現在の項目は GOTODFU。実行時にシンセサイザへ `CC119, value=100` をSPI3送信した後、ローカルもDFUへ遷移する。 |
 
 補足(シーケンサのメトロノーム):
 - シーケンサの初期状態は `play=1` とし、`SEQUENCER_PARA` 表示の初期アイコンとメトロノーム動作を一致させる。
@@ -196,6 +196,7 @@ USB MIDI入力は `USBH_MIDI_ReceiveCallback()` で4バイト単位に解析し�
 	- 外部入力(内部再生でないメッセージ)は選択チャンネルへ置換可能。
 - モード制御CC:
 	- 起動時にCable Number filter ONを送信。
+	- GOTODFU実行時に `CC119 (MODECONTROL), value=100` (`IO_MIDI_MODECONTROL_GOTODFU`) をSPI3へ送信してからローカルDFUへ遷移する。
 
 ## 10. 割り込み仕様
 - EXTI:

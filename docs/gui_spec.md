@@ -435,7 +435,7 @@ SETTING:
 | SEQUENCER_PROGRAM | 回転/押下/離上 | NoteOn/NoteOff + 内部録音 | 回転でNoteNum試聴(100ms自動NoteOff)、押下/離上で録音ノート長を入力 |
 | SEQUENCER_REC | 回転/押下 | 送信なし | 内部シーケンサ編集操作 |
 | SEQUENCER_PLAY | 回転/押下 | 送信なし | 再生/ミュート内部状態更新 |
-| SETTING | 押下 | 送信なし | `GOTODFU` 実行 |
+| SETTING | 押下 | `B0` (CC) | `CC119(MODECONTROL), value=100 (GOTODFU)` をSPI3送信後、ローカルでも `GOTODFU` 実行 |
 
 ### 8.7.4 外部MIDI入力の透過送信
 
