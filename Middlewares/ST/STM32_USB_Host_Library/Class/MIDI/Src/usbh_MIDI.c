@@ -32,16 +32,15 @@
 
 /*------------------------------------------------------------------------------------------------------------------------------*/
 
-
 /** @defgroup USBH_MIDI_CORE_Private_FunctionPrototypes
  * @{
  */
 
-static USBH_StatusTypeDef USBH_MIDI_InterfaceInit  (USBH_HandleTypeDef *phost);
-static USBH_StatusTypeDef USBH_MIDI_InterfaceDeInit  (USBH_HandleTypeDef *phost);
+static USBH_StatusTypeDef USBH_MIDI_InterfaceInit(USBH_HandleTypeDef *phost);
+static USBH_StatusTypeDef USBH_MIDI_InterfaceDeInit(USBH_HandleTypeDef *phost);
 static USBH_StatusTypeDef USBH_MIDI_Process(USBH_HandleTypeDef *phost);
 static USBH_StatusTypeDef USBH_MIDI_SOFProcess(USBH_HandleTypeDef *phost);
-static USBH_StatusTypeDef USBH_MIDI_ClassRequest (USBH_HandleTypeDef *phost);
+static USBH_StatusTypeDef USBH_MIDI_ClassRequest(USBH_HandleTypeDef *phost);
 
 static void MIDI_ProcessTransmission(USBH_HandleTypeDef *phost);
 
@@ -50,15 +49,15 @@ static void MIDI_ProcessReception(USBH_HandleTypeDef *phost);
 /*-------------------------------------------------------------------------*/
 
 USBH_ClassTypeDef MIDI_Class =
-{
-	"MIDI",
-	USB_AUDIO_CLASS,
-	USBH_MIDI_InterfaceInit,
-	USBH_MIDI_InterfaceDeInit,
-	USBH_MIDI_ClassRequest,
-	USBH_MIDI_Process, // background process called in HOST_CLASS state (core state machine)
-	USBH_MIDI_SOFProcess,
-	NULL // MIDI handle structure
+	{
+		"MIDI",
+		USB_AUDIO_CLASS,
+		USBH_MIDI_InterfaceInit,
+		USBH_MIDI_InterfaceDeInit,
+		USBH_MIDI_ClassRequest,
+		USBH_MIDI_Process, // background process called in HOST_CLASS state (core state machine)
+		USBH_MIDI_SOFProcess,
+		NULL // MIDI handle structure
 };
 
 /*------------------------------------------------------------------------------------------------------------------------------*/
@@ -69,91 +68,88 @@ USBH_ClassTypeDef MIDI_Class =
  * @param  phost: Host handle
  * @retval USBH Status
  */
-static USBH_StatusTypeDef USBH_MIDI_InterfaceInit (USBH_HandleTypeDef *phost)
-{	
+static USBH_StatusTypeDef USBH_MIDI_InterfaceInit(USBH_HandleTypeDef *phost)
+{
 
-	USBH_StatusTypeDef status = USBH_FAIL ;
+	USBH_StatusTypeDef status = USBH_FAIL;
 	uint8_t interface = 0;
 	MIDI_HandleTypeDef *MIDI_Handle;
 
-	//USB_MIDI_ChangeConnectionState(0);
+	// USB_MIDI_ChangeConnectionState(0);
 
 	interface = USBH_FindInterface(phost, USB_AUDIO_CLASS, USB_MIDISTREAMING_SubCLASS, 0xFF);
 
-	if(interface == 0xFF) /* No Valid Interface */
+	if (interface == 0xFF) /* No Valid Interface */
 	{
-		USBH_DbgLog ("Cannot Find the interface for MIDI Interface Class.", phost->pActiveClass->Name);
+		USBH_DbgLog("Cannot Find the interface for MIDI Interface Class.", phost->pActiveClass->Name);
 		status = USBH_FAIL;
 	}
 	else
 	{
-		USBH_SelectInterface (phost, interface);
+		USBH_SelectInterface(phost, interface);
 
-		phost->pActiveClass->pData = (MIDI_HandleTypeDef *)USBH_malloc (sizeof(MIDI_HandleTypeDef));
-		MIDI_Handle =  (MIDI_HandleTypeDef *)phost->pActiveClass->pData;
-		
+		phost->pActiveClass->pData = (MIDI_HandleTypeDef *)USBH_malloc(sizeof(MIDI_HandleTypeDef));
+		MIDI_Handle = (MIDI_HandleTypeDef *)phost->pActiveClass->pData;
+
 		if (MIDI_Handle == NULL)
 		{
 			USBH_DbgLog("Cannot allocate memory for MIDI Handle");
 			return USBH_FAIL;
 		}
 
-		USBH_memset(MIDI_Handle, 0, sizeof(MIDI_HandleTypeDef)); // clear memory for MIDI_Handle 		
+		USBH_memset(MIDI_Handle, 0, sizeof(MIDI_HandleTypeDef)); // clear memory for MIDI_Handle
 
-		if(phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[0].bEndpointAddress & 0x80)
+		if (phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[0].bEndpointAddress & 0x80)
 		{
 			MIDI_Handle->InEp = (phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[0].bEndpointAddress);
-			MIDI_Handle->InEpSize  = phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[0].wMaxPacketSize;
+			MIDI_Handle->InEpSize = phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[0].wMaxPacketSize;
 		}
 		else
 		{
 			MIDI_Handle->OutEp = (phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[0].bEndpointAddress);
-			MIDI_Handle->OutEpSize  = phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[0].wMaxPacketSize;
+			MIDI_Handle->OutEpSize = phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[0].wMaxPacketSize;
 		}
 
-		if(phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[1].bEndpointAddress & 0x80)
+		if (phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[1].bEndpointAddress & 0x80)
 		{
 			MIDI_Handle->InEp = (phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[1].bEndpointAddress);
-			MIDI_Handle->InEpSize  = phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[1].wMaxPacketSize;
+			MIDI_Handle->InEpSize = phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[1].wMaxPacketSize;
 		}
 		else
 		{
 			MIDI_Handle->OutEp = (phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[1].bEndpointAddress);
-			MIDI_Handle->OutEpSize  = phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[1].wMaxPacketSize;
+			MIDI_Handle->OutEpSize = phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].Ep_Desc[1].wMaxPacketSize;
 		}
 
 		MIDI_Handle->OutPipe = USBH_AllocPipe(phost, MIDI_Handle->OutEp);
 		MIDI_Handle->InPipe = USBH_AllocPipe(phost, MIDI_Handle->InEp);
 
-
 		/* Open the new channels */
-		USBH_OpenPipe  (phost,
-				MIDI_Handle->OutPipe,
-				MIDI_Handle->OutEp,
-				phost->device.address,
-				phost->device.speed,
-				USB_EP_TYPE_BULK,
-				MIDI_Handle->OutEpSize);
+		USBH_OpenPipe(phost,
+					  MIDI_Handle->OutPipe,
+					  MIDI_Handle->OutEp,
+					  phost->device.address,
+					  phost->device.speed,
+					  USB_EP_TYPE_BULK,
+					  MIDI_Handle->OutEpSize);
 
-		USBH_OpenPipe  (phost,
-				MIDI_Handle->InPipe,
-				MIDI_Handle->InEp,
-				phost->device.address,
-				phost->device.speed,
-				USB_EP_TYPE_BULK,
-				MIDI_Handle->InEpSize);
+		USBH_OpenPipe(phost,
+					  MIDI_Handle->InPipe,
+					  MIDI_Handle->InEp,
+					  phost->device.address,
+					  phost->device.speed,
+					  USB_EP_TYPE_BULK,
+					  MIDI_Handle->InEpSize);
 
-		//USB_MIDI_ChangeConnectionState(1);
+		// USB_MIDI_ChangeConnectionState(1);
 		MIDI_Handle->state = MIDI_IDLE_STATE;
 
-
-		USBH_LL_SetToggle  (phost, MIDI_Handle->InPipe,0);
-		USBH_LL_SetToggle  (phost, MIDI_Handle->OutPipe,0);
+		USBH_LL_SetToggle(phost, MIDI_Handle->InPipe, 0);
+		USBH_LL_SetToggle(phost, MIDI_Handle->OutPipe, 0);
 		status = USBH_OK;
 	}
 	return status;
 }
-
 
 /*------------------------------------------------------------------------------------------------------------------------------*/
 
@@ -163,27 +159,27 @@ static USBH_StatusTypeDef USBH_MIDI_InterfaceInit (USBH_HandleTypeDef *phost)
  * @param  phost: Host handle
  * @retval USBH Status
  */
-USBH_StatusTypeDef USBH_MIDI_InterfaceDeInit (USBH_HandleTypeDef *phost)
+USBH_StatusTypeDef USBH_MIDI_InterfaceDeInit(USBH_HandleTypeDef *phost)
 {
-	MIDI_HandleTypeDef *MIDI_Handle =  phost->pActiveClass->pData;
+	MIDI_HandleTypeDef *MIDI_Handle = phost->pActiveClass->pData;
 
-	if ( MIDI_Handle->OutPipe)
+	if (MIDI_Handle->OutPipe)
 	{
 		USBH_ClosePipe(phost, MIDI_Handle->OutPipe);
-		USBH_FreePipe  (phost, MIDI_Handle->OutPipe);
-		MIDI_Handle->OutPipe = 0;     /* Reset the Channel as Free */
+		USBH_FreePipe(phost, MIDI_Handle->OutPipe);
+		MIDI_Handle->OutPipe = 0; /* Reset the Channel as Free */
 	}
 
-	if ( MIDI_Handle->InPipe)
+	if (MIDI_Handle->InPipe)
 	{
 		USBH_ClosePipe(phost, MIDI_Handle->InPipe);
-		USBH_FreePipe  (phost, MIDI_Handle->InPipe);
-		MIDI_Handle->InPipe = 0;     /* Reset the Channel as Free */
+		USBH_FreePipe(phost, MIDI_Handle->InPipe);
+		MIDI_Handle->InPipe = 0; /* Reset the Channel as Free */
 	}
 
-	if(phost->pActiveClass->pData)
+	if (phost->pActiveClass->pData)
 	{
-		USBH_free (phost->pActiveClass->pData);
+		USBH_free(phost->pActiveClass->pData);
 		phost->pActiveClass->pData = 0;
 	}
 
@@ -199,8 +195,8 @@ USBH_StatusTypeDef USBH_MIDI_InterfaceDeInit (USBH_HandleTypeDef *phost)
  * @param  phost: Host handle
  * @retval USBH Status
  */
-static USBH_StatusTypeDef USBH_MIDI_ClassRequest (USBH_HandleTypeDef *phost)
-{   
+static USBH_StatusTypeDef USBH_MIDI_ClassRequest(USBH_HandleTypeDef *phost)
+{
 	phost->pUser(phost, HOST_USER_CLASS_ACTIVE);
 
 	return USBH_OK;
@@ -209,23 +205,23 @@ static USBH_StatusTypeDef USBH_MIDI_ClassRequest (USBH_HandleTypeDef *phost)
 /*------------------------------------------------------------------------------------------------------------------------------*/
 
 /**
-  * @brief  USBH_MIDI_Stop
-  *         Stop current MIDI Transmission
-  * @param  phost: Host handle
-  * @retval USBH Status
-  */
-USBH_StatusTypeDef  USBH_MIDI_Stop(USBH_HandleTypeDef *phost)
+ * @brief  USBH_MIDI_Stop
+ *         Stop current MIDI Transmission
+ * @param  phost: Host handle
+ * @retval USBH Status
+ */
+USBH_StatusTypeDef USBH_MIDI_Stop(USBH_HandleTypeDef *phost)
 {
-  MIDI_HandleTypeDef *MIDI_Handle =  phost->pActiveClass->pData;
+	MIDI_HandleTypeDef *MIDI_Handle = phost->pActiveClass->pData;
 
-  if(phost->gState == HOST_CLASS)
-  {
-    MIDI_Handle->state = MIDI_IDLE_STATE;
+	if (phost->gState == HOST_CLASS)
+	{
+		MIDI_Handle->state = MIDI_IDLE_STATE;
 
-    USBH_ClosePipe(phost, MIDI_Handle->InPipe);
-    USBH_ClosePipe(phost, MIDI_Handle->OutPipe);
-  }
-  return USBH_OK;
+		USBH_ClosePipe(phost, MIDI_Handle->InPipe);
+		USBH_ClosePipe(phost, MIDI_Handle->OutPipe);
+	}
+	return USBH_OK;
 }
 
 /*------------------------------------------------------------------------------------------------------------------------------*/
@@ -237,13 +233,13 @@ USBH_StatusTypeDef  USBH_MIDI_Stop(USBH_HandleTypeDef *phost)
  * @param  phost: Host handle
  * @retval USBH Status
  */
-static USBH_StatusTypeDef USBH_MIDI_Process (USBH_HandleTypeDef *phost)
+static USBH_StatusTypeDef USBH_MIDI_Process(USBH_HandleTypeDef *phost)
 {
 	USBH_StatusTypeDef status = USBH_BUSY;
 	USBH_StatusTypeDef req_status = USBH_OK;
-	MIDI_HandleTypeDef *MIDI_Handle =  phost->pActiveClass->pData;
+	MIDI_HandleTypeDef *MIDI_Handle = phost->pActiveClass->pData;
 
-	switch(MIDI_Handle->state)
+	switch (MIDI_Handle->state)
 	{
 
 	case MIDI_IDLE_STATE:
@@ -258,16 +254,15 @@ static USBH_StatusTypeDef USBH_MIDI_Process (USBH_HandleTypeDef *phost)
 	case MIDI_ERROR_STATE:
 		req_status = USBH_ClrFeature(phost, 0x00);
 
-		if(req_status == USBH_OK )
+		if (req_status == USBH_OK)
 		{
 			/*Change the state to waiting*/
-			MIDI_Handle->state = MIDI_IDLE_STATE ;
+			MIDI_Handle->state = MIDI_IDLE_STATE;
 		}
 		break;
 
 	default:
 		break;
-
 	}
 
 	return status;
@@ -275,16 +270,16 @@ static USBH_StatusTypeDef USBH_MIDI_Process (USBH_HandleTypeDef *phost)
 /*------------------------------------------------------------------------------------------------------------------------------*/
 
 /**
-  * @brief  USBH_MIDI_SOFProcess 
-  *         The function is for managing SOF callback 
-  * @param  phost: Host handle
-  * @retval USBH Status
-  */
-static USBH_StatusTypeDef USBH_MIDI_SOFProcess (USBH_HandleTypeDef *phost)
+ * @brief  USBH_MIDI_SOFProcess
+ *         The function is for managing SOF callback
+ * @param  phost: Host handle
+ * @retval USBH Status
+ */
+static USBH_StatusTypeDef USBH_MIDI_SOFProcess(USBH_HandleTypeDef *phost)
 {
-  return USBH_OK;  
+	return USBH_OK;
 }
-  
+
 /*------------------------------------------------------------------------------------------------------------------------------*/
 
 /**
@@ -294,9 +289,9 @@ static USBH_StatusTypeDef USBH_MIDI_SOFProcess (USBH_HandleTypeDef *phost)
  */
 uint16_t USBH_MIDI_GetLastReceivedDataSize(USBH_HandleTypeDef *phost)
 {
-	MIDI_HandleTypeDef *MIDI_Handle =  phost->pActiveClass->pData;
+	MIDI_HandleTypeDef *MIDI_Handle = phost->pActiveClass->pData;
 
-	if(phost->gState == HOST_CLASS)
+	if (phost->gState == HOST_CLASS)
 	{
 		return USBH_LL_GetLastXferSize(phost, MIDI_Handle->InPipe);
 	}
@@ -313,12 +308,12 @@ uint16_t USBH_MIDI_GetLastReceivedDataSize(USBH_HandleTypeDef *phost)
  * @param  None
  * @retval None
  */
-USBH_StatusTypeDef  USBH_MIDI_Transmit(USBH_HandleTypeDef *phost, uint8_t *pbuff, uint16_t length)
+USBH_StatusTypeDef USBH_MIDI_Transmit(USBH_HandleTypeDef *phost, uint8_t *pbuff, uint16_t length)
 {
 	USBH_StatusTypeDef Status = USBH_BUSY;
-	MIDI_HandleTypeDef *MIDI_Handle =  phost->pActiveClass->pData;
+	MIDI_HandleTypeDef *MIDI_Handle = phost->pActiveClass->pData;
 
-	if((MIDI_Handle->state == MIDI_IDLE_STATE) || (MIDI_Handle->state == MIDI_TRANSFER_DATA))
+	if ((MIDI_Handle->state == MIDI_IDLE_STATE) || (MIDI_Handle->state == MIDI_TRANSFER_DATA))
 	{
 		MIDI_Handle->pTxData = pbuff;
 		MIDI_Handle->TxDataLength = length;
@@ -326,7 +321,7 @@ USBH_StatusTypeDef  USBH_MIDI_Transmit(USBH_HandleTypeDef *phost, uint8_t *pbuff
 		MIDI_Handle->data_tx_state = MIDI_SEND_DATA;
 		Status = USBH_OK;
 #if (USBH_USE_OS == 1)
-		osMessagePut ( phost->os_event, USBH_CLASS_EVENT, 0);
+		osMessagePut(phost->os_event, USBH_CLASS_EVENT, 0);
 #endif
 	}
 	return Status;
@@ -339,12 +334,12 @@ USBH_StatusTypeDef  USBH_MIDI_Transmit(USBH_HandleTypeDef *phost, uint8_t *pbuff
  * @param  None
  * @retval None
  */
-USBH_StatusTypeDef  USBH_MIDI_Receive(USBH_HandleTypeDef *phost, uint8_t *pbuff, uint16_t length)
+USBH_StatusTypeDef USBH_MIDI_Receive(USBH_HandleTypeDef *phost, uint8_t *pbuff, uint16_t length)
 {
 	USBH_StatusTypeDef Status = USBH_BUSY;
-	MIDI_HandleTypeDef *MIDI_Handle =  phost->pActiveClass->pData;
+	MIDI_HandleTypeDef *MIDI_Handle = phost->pActiveClass->pData;
 
-	if((MIDI_Handle->state == MIDI_IDLE_STATE) || (MIDI_Handle->state == MIDI_TRANSFER_DATA))
+	if ((MIDI_Handle->state == MIDI_IDLE_STATE) || (MIDI_Handle->state == MIDI_TRANSFER_DATA))
 	{
 		MIDI_Handle->pRxData = pbuff;
 		MIDI_Handle->RxDataLength = length;
@@ -352,7 +347,7 @@ USBH_StatusTypeDef  USBH_MIDI_Receive(USBH_HandleTypeDef *phost, uint8_t *pbuff,
 		MIDI_Handle->data_rx_state = MIDI_RECEIVE_DATA;
 		Status = USBH_OK;
 #if (USBH_USE_OS == 1)
-		osMessagePut ( phost->os_event, USBH_CLASS_EVENT, 0);
+		osMessagePut(phost->os_event, USBH_CLASS_EVENT, 0);
 #endif
 	}
 	return Status;
@@ -367,28 +362,28 @@ USBH_StatusTypeDef  USBH_MIDI_Receive(USBH_HandleTypeDef *phost, uint8_t *pbuff,
  */
 static void MIDI_ProcessTransmission(USBH_HandleTypeDef *phost)
 {
-	MIDI_HandleTypeDef *MIDI_Handle =  phost->pActiveClass->pData;
+	MIDI_HandleTypeDef *MIDI_Handle = phost->pActiveClass->pData;
 	USBH_URBStateTypeDef URB_Status = USBH_URB_IDLE;
 
-	switch(MIDI_Handle->data_tx_state)
+	switch (MIDI_Handle->data_tx_state)
 	{
 
 	case MIDI_SEND_DATA:
-		if(MIDI_Handle->TxDataLength > MIDI_Handle->OutEpSize)
+		if (MIDI_Handle->TxDataLength > MIDI_Handle->OutEpSize)
 		{
-			USBH_BulkSendData (phost,
-					MIDI_Handle->pTxData,
-					MIDI_Handle->OutEpSize,
-					MIDI_Handle->OutPipe,
-					1);
+			USBH_BulkSendData(phost,
+							  MIDI_Handle->pTxData,
+							  MIDI_Handle->OutEpSize,
+							  MIDI_Handle->OutPipe,
+							  1);
 		}
 		else
 		{
-			USBH_BulkSendData (phost,
-					MIDI_Handle->pTxData,
-					MIDI_Handle->TxDataLength,
-					MIDI_Handle->OutPipe,
-					1);
+			USBH_BulkSendData(phost,
+							  MIDI_Handle->pTxData,
+							  MIDI_Handle->TxDataLength,
+							  MIDI_Handle->OutPipe,
+							  1);
 		}
 
 		MIDI_Handle->data_tx_state = MIDI_SEND_DATA_WAIT;
@@ -400,11 +395,11 @@ static void MIDI_ProcessTransmission(USBH_HandleTypeDef *phost)
 		URB_Status = USBH_LL_GetURBState(phost, MIDI_Handle->OutPipe);
 
 		/*Check the status done for transmission*/
-		if(URB_Status == USBH_URB_DONE )
+		if (URB_Status == USBH_URB_DONE)
 		{
-			if(MIDI_Handle->TxDataLength > MIDI_Handle->OutEpSize)
+			if (MIDI_Handle->TxDataLength > MIDI_Handle->OutEpSize)
 			{
-				MIDI_Handle->TxDataLength -= MIDI_Handle->OutEpSize ;
+				MIDI_Handle->TxDataLength -= MIDI_Handle->OutEpSize;
 				MIDI_Handle->pTxData += MIDI_Handle->OutEpSize;
 			}
 			else
@@ -412,7 +407,7 @@ static void MIDI_ProcessTransmission(USBH_HandleTypeDef *phost)
 				MIDI_Handle->TxDataLength = 0;
 			}
 
-			if( MIDI_Handle->TxDataLength > 0)
+			if (MIDI_Handle->TxDataLength > 0)
 			{
 				MIDI_Handle->data_tx_state = MIDI_SEND_DATA;
 			}
@@ -422,14 +417,14 @@ static void MIDI_ProcessTransmission(USBH_HandleTypeDef *phost)
 				USBH_MIDI_TransmitCallback(phost);
 			}
 #if (USBH_USE_OS == 1)
-			osMessagePut ( phost->os_event, USBH_CLASS_EVENT, 0);
+			osMessagePut(phost->os_event, USBH_CLASS_EVENT, 0);
 #endif
 		}
-		else if( URB_Status == USBH_URB_NOTREADY )
+		else if (URB_Status == USBH_URB_NOTREADY)
 		{
 			MIDI_Handle->data_tx_state = MIDI_SEND_DATA;
 #if (USBH_USE_OS == 1)
-			osMessagePut ( phost->os_event, USBH_CLASS_EVENT, 0);
+			osMessagePut(phost->os_event, USBH_CLASS_EVENT, 0);
 #endif
 		}
 		break;
@@ -448,22 +443,22 @@ static void MIDI_ProcessTransmission(USBH_HandleTypeDef *phost)
 
 static void MIDI_ProcessReception(USBH_HandleTypeDef *phost)
 {
-	MIDI_HandleTypeDef *MIDI_Handle =  phost->pActiveClass->pData;
+	MIDI_HandleTypeDef *MIDI_Handle = phost->pActiveClass->pData;
 	USBH_URBStateTypeDef URB_Status = USBH_URB_IDLE;
 	uint16_t length;
 
-	switch(MIDI_Handle->data_rx_state)
+	switch (MIDI_Handle->data_rx_state)
 	{
 
 	case MIDI_RECEIVE_DATA:
 
-		USBH_BulkReceiveData (phost,
-				MIDI_Handle->pRxData,
-				MIDI_Handle->InEpSize,
-				MIDI_Handle->InPipe);
+		USBH_BulkReceiveData(phost,
+							 MIDI_Handle->pRxData,
+							 MIDI_Handle->InEpSize,
+							 MIDI_Handle->InPipe);
 
 		MIDI_Handle->data_rx_state = MIDI_RECEIVE_DATA_WAIT;
-		//BSP_LED_On(LED_Red); //ok only here
+		// BSP_LED_On(LED_Red); //ok only here
 
 		break;
 
@@ -472,23 +467,24 @@ static void MIDI_ProcessReception(USBH_HandleTypeDef *phost)
 		URB_Status = USBH_LL_GetURBState(phost, MIDI_Handle->InPipe);
 
 		/*Check the status done for reception*/
-		if(URB_Status == USBH_URB_DONE )
+		if (URB_Status == USBH_URB_DONE)
 		{
 			length = USBH_LL_GetLastXferSize(phost, MIDI_Handle->InPipe);
 
-			if(((MIDI_Handle->RxDataLength - length) > 0) && (length > MIDI_Handle->InEpSize))
+			if (((MIDI_Handle->RxDataLength - length) > 0) && (length > MIDI_Handle->InEpSize))
 			{
-				MIDI_Handle->RxDataLength -= length ;
+				MIDI_Handle->RxDataLength -= length;
 				MIDI_Handle->pRxData += length;
 				MIDI_Handle->data_rx_state = MIDI_RECEIVE_DATA;
 			}
 			else
 			{
+				MIDI_Handle->RxDataLength = length;
 				MIDI_Handle->data_rx_state = MIDI_IDLE;
 				USBH_MIDI_ReceiveCallback(phost);
 			}
 #if (USBH_USE_OS == 1)
-			osMessagePut ( phost->os_event, USBH_CLASS_EVENT, 0);
+			osMessagePut(phost->os_event, USBH_CLASS_EVENT, 0);
 #endif
 		}
 		break;
@@ -497,7 +493,6 @@ static void MIDI_ProcessReception(USBH_HandleTypeDef *phost)
 		break;
 	}
 }
-
 
 /*------------------------------------------------------------------------------------------------------------------------------*/
 
@@ -508,7 +503,6 @@ static void MIDI_ProcessReception(USBH_HandleTypeDef *phost)
  */
 __weak void USBH_MIDI_TransmitCallback(USBH_HandleTypeDef *phost)
 {
-
 }
 
 /*------------------------------------------------------------------------------------------------------------------------------*/
@@ -519,7 +513,6 @@ __weak void USBH_MIDI_TransmitCallback(USBH_HandleTypeDef *phost)
  */
 __weak void USBH_MIDI_ReceiveCallback(USBH_HandleTypeDef *phost)
 {
-
 }
 
 /**************************END OF FILE*********************************************************/

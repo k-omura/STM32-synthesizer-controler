@@ -99,7 +99,6 @@ static void ProcessReceivedMidiDatas(void)
   {
     uint8_t evnt0 = *(ptr + 1);
     evnt0 &= 0xF0;
-    evnt0 >>= 4;
     switch (evnt0)
     {
     case IO_MIDI_EVT0_NOTEOFF:
@@ -114,7 +113,7 @@ static void ProcessReceivedMidiDatas(void)
        *(ptr + 1) &= 0xF0; // clear the channel bits
        *(ptr + 1) |= 0x01; // set the channel to 1 (MIDI channel 2)
        */
-      io_midi_transport_send_packet(ptr);
+      io_midi_transport_push_rx_packet(ptr);
       break;
     }
     default:

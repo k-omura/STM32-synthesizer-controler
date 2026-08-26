@@ -69,5 +69,6 @@ void domain_display_model_get_current(domain_display_model_t *out_model);
 void domain_display_model_clear_midi_context(void);
 void domain_display_model_set_midi_context(uint8_t midi_msg_type, uint8_t channel, uint8_t data1, uint8_t data2, uint8_t external);
 void domain_display_model_get_midi_context(domain_display_midi_context_t *out_context);
+uint8_t domain_display_model_pop_note_event(domain_display_midi_context_t *out_context);
 
 #endif

@@ -121,8 +121,7 @@ static void io_display_renderer_update_note_animation(void)
     uint8_t note;
     uint32_t now_tick = HAL_GetTick();
 
-    domain_display_model_get_midi_context(&midi_ctx);
-    if ((midi_ctx.valid != 0U) && ((midi_ctx.midi_msg_type == IO_MIDI_EVT0_NOTEON) || (midi_ctx.midi_msg_type == IO_MIDI_EVT0_NOTEOFF)))
+    while (domain_display_model_pop_note_event(&midi_ctx) != 0U)
     {
         note = midi_ctx.data1;
         if (note < IO_DISPLAY_NOTE_COUNT)
@@ -141,8 +140,6 @@ static void io_display_renderer_update_note_animation(void)
                 anim->active = 0U;
             }
         }
-
-        domain_display_model_clear_midi_context();
     }
 }
 

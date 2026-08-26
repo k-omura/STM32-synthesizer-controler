@@ -13,8 +13,8 @@
 #include <stdint.h>
 #include "main.h"
 
-#define IO_MIDI_RX_QUEUE_CAPACITY (256)
-#define IO_MIDI_TX_QUEUE_CAPACITY (256)
+#define IO_MIDI_RX_QUEUE_CAPACITY (512)
+#define IO_MIDI_TX_QUEUE_CAPACITY (512)
 
 void io_midi_transport_init(void);
 void io_midi_transport_bind_tx_spi(SPI_HandleTypeDef *hspi_tx);
