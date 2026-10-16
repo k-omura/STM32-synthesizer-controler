@@ -170,9 +170,7 @@ int main(void)
   // Initial MIDI BLE initiater/client switch
   if (HAL_GPIO_ReadPin(RE1_BTN_GPIO_Port, RE1_BTN_Pin) == GPIO_PIN_RESET)
   {
-    HAL_GPIO_WritePin(bleInitMode_GPIO_Port, bleInitMode_Pin, GPIO_PIN_SET);
-    HAL_Delay(1000);
-    HAL_GPIO_WritePin(bleInitMode_GPIO_Port, bleInitMode_Pin, GPIO_PIN_RESET);
+    io_system_control_ble_init_mode_pulse();
   }
 
   // Start MIDI Repeater

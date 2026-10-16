@@ -11,6 +11,13 @@
 #include "io_display_driver.h"
 #include "main.h"
 
+void io_system_control_ble_init_mode_pulse(void)
+{
+    HAL_GPIO_WritePin(bleInitMode_GPIO_Port, bleInitMode_Pin, GPIO_PIN_SET);
+    HAL_Delay(1000);
+    HAL_GPIO_WritePin(bleInitMode_GPIO_Port, bleInitMode_Pin, GPIO_PIN_RESET);
+}
+
 /**
  * @brief Jumps to the DFU (Device Firmware Upgrade) bootloader.
  * @return Result of the operation.
@@ -20,6 +27,7 @@ io_system_control_result_t io_system_control_goto_dfu(void)
     io_system_control_result_t res = IO_SYSTEM_CONTROL_RES_OK;
     void (*SysMemBootJump)(void);
 
+    io_system_control_ble_init_mode_pulse();
     io_display_driver_shutdown();
 
     /* Disable all interrupts */

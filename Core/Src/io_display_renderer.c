@@ -9,6 +9,7 @@
 
 #include "io_display_renderer.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -25,13 +26,25 @@
 #define IO_DISPLAY_NOTE_RING_STEP_MS 30UL
 #define IO_DISPLAY_BOOT_LOGO_DURATION_MS 2500UL
 #define IO_DISPLAY_BOOT_LOGO_PHASE_MS 1250UL
+#define IO_DISPLAY_MODE2_ATTACK_MS 60UL
+#define IO_DISPLAY_MODE2_RELEASE_MS 180UL
+#define IO_DISPLAY_MODE2_RESONANCE_PERIOD_MS 600.0f
+#define IO_DISPLAY_MODE2_TWO_PI 6.28318530717958647692f
+#define IO_DISPLAY_MODE2_IDLE_WHITE_LEVEL 128U
+#define IO_DISPLAY_MODE2_BRIGHTNESS_DIVISOR 6U
+#define IO_DISPLAY_MODE2_COLOR_COUNT 8U
+#define IO_DISPLAY_MODE2_SUBPIXEL_SCALE 256U
+#define IO_DISPLAY_MODE2_PERIOD_COUNT 5U
+#define IO_DISPLAY_MODE2_LAYER_COUNT 2U
 
+/** @brief Display text and the number of rendered glyphs. */
 typedef struct
 {
     const char *text;
     uint8_t len;
 } io_display_text_entry_t;
 
+/** @brief MODE1 note activity and vertical-ring state. */
 typedef struct
 {
     uint8_t active;
@@ -39,6 +52,23 @@ typedef struct
     io_display_driver_color_t color;
     uint32_t ring_tick;
 } io_display_note_anim_t;
+
+/** @brief Held-note count, velocity, period preset, and envelope for one MODE2 voice. */
+typedef struct
+{
+    uint8_t held_count;
+    uint8_t velocity;
+    uint8_t envelope;
+    uint8_t period_index;
+} io_display_mode2_voice_t;
+
+/** @brief Per-pixel MODE2 RGB accumulation; waveform samples remain independent. */
+typedef struct
+{
+    uint32_t green;
+    uint32_t red;
+    uint32_t blue;
+} io_display_mode2_pixel_t;
 
 typedef enum
 {
@@ -55,8 +85,17 @@ static SPI_HandleTypeDef *g_hspi_neopixel;
 static uint8_t g_seqpara_channel = 0U;
 static uint8_t g_seqplay_mode = 0U;
 static uint8_t g_seqinput_target_bar = 0U;
+static io_display_setting_item_t g_setting_item = IO_DISPLAY_SETTING_ITEM_ANIMATION;
+static io_display_animation_mode_t g_animation_mode = IO_DISPLAY_ANIMATION_MODE_1;
 static uint32_t g_boot_logo_start_tick = 0UL;
 static io_display_note_anim_t g_note_anim[IO_DISPLAY_NOTE_COUNT];
+static io_display_mode2_voice_t g_mode2_voice[IO_DISPLAY_MIDI_CHANNEL_COUNT][IO_DISPLAY_NOTE_COUNT];
+static io_display_mode2_pixel_t g_mode2_pixels[IO_DISPLAY_DRIVER_PIXELS];
+static uint32_t g_mode2_last_tick;
+static uint32_t g_mode2_phase_tick;
+static uint16_t g_mode2_held_voice_count;
+static uint8_t g_mode2_next_period_index;
+static float g_mode2_resonance_phase;
 
 static const io_display_text_entry_t g_seq_input_action_texts[] = {
     {"UNDO", 4},
@@ -89,6 +128,21 @@ static const io_display_text_entry_t g_control_hint_texts[] = {
     {"MUTEOFF", 7},
 };
 
+/** @brief Visual spatial period counts assigned to MODE2 voices, independent of MIDI pitch. */
+static const float g_mode2_period_presets[IO_DISPLAY_MODE2_PERIOD_COUNT] = {0.75f, 1.0f, 1.25f, 1.5f, 2.0f};
+
+/** @brief Blue, cyan, indigo, purple, pink, orange, magenta, violet in green/red/blue order. */
+static const io_display_driver_color_t g_mode2_gradient[IO_DISPLAY_MODE2_COLOR_COUNT] = {
+    {132U, 10U, 255U},
+    {210U, 100U, 255U},
+    {92U, 94U, 230U},
+    {90U, 191U, 242U},
+    {55U, 255U, 95U},
+    {159U, 255U, 10U},
+    {100U, 255U, 180U},
+    {100U, 120U, 245U},
+};
+
 /**
  * @brief Get the note color from the velocity.
  *
@@ -111,34 +165,389 @@ static io_display_driver_color_t io_display_renderer_note_color_from_velocity(ui
     return out;
 }
 
+/** @brief Clears MODE1 and MODE2 note state and resets resonance timing. */
+static void io_display_renderer_clear_note_state_data(void)
+{
+    memset(g_note_anim, 0, sizeof(g_note_anim));
+    memset(g_mode2_voice, 0, sizeof(g_mode2_voice));
+    g_mode2_held_voice_count = 0U;
+    g_mode2_next_period_index = 0U;
+    g_mode2_resonance_phase = 0.0f;
+    g_mode2_last_tick = HAL_GetTick();
+    g_mode2_phase_tick = g_mode2_last_tick;
+}
+
 /**
- * @brief Update the note animation state.
+ * @brief Advances a voice envelope using elapsed milliseconds.
+ * @param envelope Current envelope level in the range 0..255.
+ * @param elapsed Time since the previous renderer update.
+ * @param duration Attack or release duration in milliseconds.
+ * @param rising Nonzero to attack; zero to release.
+ * @return Updated envelope level.
  */
+static uint8_t io_display_renderer_advance_envelope(uint8_t envelope, uint32_t elapsed, uint32_t duration, uint8_t rising)
+{
+    uint32_t change;
+
+    if (elapsed == 0U)
+    {
+        return envelope;
+    }
+
+    if (elapsed >= duration)
+    {
+        change = 255U;
+    }
+    else
+    {
+        change = (elapsed * 255U) / duration;
+        if (change == 0U)
+        {
+            change = 1U;
+        }
+    }
+
+    if (rising != 0U)
+    {
+        uint16_t next_envelope = (uint16_t)envelope + (uint16_t)change;
+        return (next_envelope > 255U) ? 255U : (uint8_t)next_envelope;
+    }
+
+    return (envelope > change) ? (uint8_t)(envelope - change) : 0U;
+}
+
+/** @brief Consumes queued MIDI note events and advances MODE1/MODE2 state. */
 static void io_display_renderer_update_note_animation(void)
 {
     domain_display_midi_context_t midi_ctx;
-    io_display_note_anim_t *anim;
-    uint8_t note;
     uint32_t now_tick = HAL_GetTick();
+
+    if (domain_display_model_take_note_event_overflow() != 0U)
+    {
+        io_display_renderer_clear_note_state_data();
+        domain_display_model_clear_note_events();
+        return;
+    }
 
     while (domain_display_model_pop_note_event(&midi_ctx) != 0U)
     {
-        note = midi_ctx.data1;
-        if (note < IO_DISPLAY_NOTE_COUNT)
-        {
-            anim = &g_note_anim[note];
-            anim->ring = 1U;
-            anim->ring_tick = now_tick;
+        uint8_t note = midi_ctx.data1;
+        uint8_t is_note_on = (uint8_t)((midi_ctx.midi_msg_type == IO_MIDI_EVT0_NOTEON) && (midi_ctx.data2 != 0U));
 
-            if ((midi_ctx.midi_msg_type == IO_MIDI_EVT0_NOTEON) && (midi_ctx.data2 != 0U))
+        if (note >= IO_DISPLAY_NOTE_COUNT)
+        {
+            continue;
+        }
+
+        if (g_animation_mode == IO_DISPLAY_ANIMATION_MODE_1)
+        {
+            io_display_note_anim_t *anim = &g_note_anim[note];
+
+            if (is_note_on != 0U)
             {
                 anim->active = 1U;
                 anim->color = io_display_renderer_note_color_from_velocity(midi_ctx.data2);
+                anim->ring = 1U;
+                anim->ring_tick = now_tick;
             }
             else
             {
                 anim->active = 0U;
+                anim->ring = 0U;
             }
+            continue;
+        }
+
+        if (midi_ctx.channel < IO_DISPLAY_MIDI_CHANNEL_COUNT)
+        {
+            io_display_mode2_voice_t *voice = &g_mode2_voice[midi_ctx.channel][note];
+
+            if (is_note_on != 0U)
+            {
+                if ((voice->held_count == 0U) && (voice->envelope == 0U))
+                {
+                    voice->period_index = g_mode2_next_period_index;
+                    g_mode2_next_period_index = (uint8_t)((g_mode2_next_period_index + 1U) % IO_DISPLAY_MODE2_PERIOD_COUNT);
+                }
+
+                if (voice->held_count < UINT8_MAX)
+                {
+                    voice->held_count++;
+                }
+                voice->velocity = midi_ctx.data2;
+            }
+            else if (voice->held_count > 0U)
+            {
+                voice->held_count--;
+            }
+        }
+    }
+
+    g_mode2_held_voice_count = 0U;
+    if (g_animation_mode == IO_DISPLAY_ANIMATION_MODE_2)
+    {
+        uint32_t elapsed = now_tick - g_mode2_last_tick;
+
+        g_mode2_last_tick = now_tick;
+        for (uint8_t channel = 0U; channel < IO_DISPLAY_MIDI_CHANNEL_COUNT; channel++)
+        {
+            for (uint16_t note = 0U; note < IO_DISPLAY_NOTE_COUNT; note++)
+            {
+                io_display_mode2_voice_t *voice = &g_mode2_voice[channel][note];
+
+                if (voice->held_count > 0U)
+                {
+                    g_mode2_held_voice_count++;
+                    voice->envelope = io_display_renderer_advance_envelope(voice->envelope,
+                                                                           elapsed,
+                                                                           IO_DISPLAY_MODE2_ATTACK_MS,
+                                                                           1U);
+                }
+                else
+                {
+                    voice->envelope = io_display_renderer_advance_envelope(voice->envelope,
+                                                                           elapsed,
+                                                                           IO_DISPLAY_MODE2_RELEASE_MS,
+                                                                           0U);
+                    if (voice->envelope > 0U)
+                    {
+                        g_mode2_held_voice_count++;
+                    }
+                }
+            }
+        }
+
+        if (g_mode2_held_voice_count > 0U)
+        {
+            uint32_t elapsed = now_tick - g_mode2_phase_tick;
+
+            if (elapsed > 1000UL)
+            {
+                elapsed = 1000UL;
+            }
+
+            g_mode2_resonance_phase += (IO_DISPLAY_MODE2_TWO_PI * (float)elapsed) / IO_DISPLAY_MODE2_RESONANCE_PERIOD_MS;
+            if (g_mode2_resonance_phase >= IO_DISPLAY_MODE2_TWO_PI)
+            {
+                g_mode2_resonance_phase -= IO_DISPLAY_MODE2_TWO_PI;
+            }
+            g_mode2_phase_tick = now_tick;
+        }
+        else
+        {
+            g_mode2_phase_tick = now_tick;
+        }
+    }
+}
+
+/**
+ * @brief Rolls an accumulated color component off toward 255 instead of hard clipping.
+ * @param value Unbounded color component.
+ * @return Compressed 8-bit color component.
+ */
+static uint8_t io_display_renderer_soft_clip(uint32_t value)
+{
+    return (uint8_t)((255.0f * (1.0f - expf(-(float)value / 170.0f))) + 0.5f);
+}
+
+/**
+ * @brief Evaluates a spatial sine; noteNum only shifts its phase and never its frequency.
+ * @param note MIDI note number.
+ * @param period_count Spatial periods across the display.
+ * @param x Horizontal display coordinate.
+ * @return Sample in -1..1.
+ */
+static float io_display_renderer_mode2_sample(uint16_t note, float period_count, uint16_t x)
+{
+    float phase_offset = ((float)note / 127.0f) * 1.2f;
+
+    return sinf((IO_DISPLAY_MODE2_TWO_PI * period_count * ((float)x + 0.5f) / (float)IO_DISPLAY_DRIVER_WIDTH) + phase_offset);
+}
+
+/**
+ * @brief Returns a standing-wave amplitude that crosses zero, swinging a trace up and down.
+ * @param speed Integer multiple of the base resonance rate.
+ * @param phase_offset Per-trace phase in radians.
+ * @return Amplitude multiplier in -1..1.
+ */
+static float io_display_renderer_mode2_oscillation(uint8_t speed, float phase_offset)
+{
+    return cosf((g_mode2_resonance_phase * (float)speed) + phase_offset);
+}
+
+/**
+ * @brief Interpolates the MODE2 color gradient at a cyclic palette position.
+ * @param position Position in palette stops; fractional values blend adjacent colors.
+ * @return Interpolated RGB color.
+ */
+static io_display_driver_color_t io_display_renderer_mode2_gradient_sample(float position)
+{
+    const float gradient_period = (float)IO_DISPLAY_MODE2_COLOR_COUNT;
+    float wrapped_position = position;
+    uint8_t color_index;
+    uint8_t next_color_index;
+    float fraction;
+    const io_display_driver_color_t *first;
+    const io_display_driver_color_t *second;
+    io_display_driver_color_t color;
+
+    while (wrapped_position >= gradient_period)
+    {
+        wrapped_position -= gradient_period;
+    }
+    color_index = (uint8_t)wrapped_position;
+    next_color_index = (uint8_t)((color_index + 1U) & (IO_DISPLAY_MODE2_COLOR_COUNT - 1U));
+    fraction = wrapped_position - (float)color_index;
+    first = &g_mode2_gradient[color_index];
+    second = &g_mode2_gradient[next_color_index];
+
+    color.green = (uint8_t)((float)first->green + (((float)second->green - (float)first->green) * fraction) + 0.5f);
+    color.red = (uint8_t)((float)first->red + (((float)second->red - (float)first->red) * fraction) + 0.5f);
+    color.blue = (uint8_t)((float)first->blue + (((float)second->blue - (float)first->blue) * fraction) + 0.5f);
+    return color;
+}
+
+/**
+ * @brief Adds one voice contribution to a pixel without combining waveform samples.
+ * @param x Horizontal pixel coordinate.
+ * @param y_position_q8 Vertical pixel coordinate in Q8 format.
+ * @param color Voice color at this horizontal coordinate.
+ * @param weight Voice envelope and velocity weight in the range 0..255.
+ */
+static void io_display_renderer_accumulate_mode2_pixel(uint16_t x,
+                                                       int32_t y_position_q8,
+                                                       const io_display_driver_color_t *color,
+                                                       uint16_t weight)
+{
+    int32_t max_y_q8 = (IO_DISPLAY_DRIVER_HEIGHT - 1U) * IO_DISPLAY_MODE2_SUBPIXEL_SCALE;
+    uint8_t y_row;
+    uint8_t y_fraction;
+    uint8_t coverage[2];
+    uint8_t row_offset;
+
+    if (y_position_q8 < 0)
+    {
+        y_position_q8 = 0;
+    }
+    else if (y_position_q8 > max_y_q8)
+    {
+        y_position_q8 = max_y_q8;
+    }
+
+    y_row = (uint8_t)(y_position_q8 / IO_DISPLAY_MODE2_SUBPIXEL_SCALE);
+    y_fraction = (uint8_t)(y_position_q8 % IO_DISPLAY_MODE2_SUBPIXEL_SCALE);
+    if (y_row >= (IO_DISPLAY_DRIVER_HEIGHT - 1U))
+    {
+        y_row = IO_DISPLAY_DRIVER_HEIGHT - 1U;
+        y_fraction = 0U;
+    }
+
+    {
+        float t = (float)y_fraction / (float)UINT8_MAX;
+
+        coverage[1] = (uint8_t)((t * t * (3.0f - (2.0f * t)) * (float)UINT8_MAX) + 0.5f);
+        coverage[0] = (uint8_t)(UINT8_MAX - coverage[1]);
+    }
+    for (row_offset = 0U; row_offset < 2U; row_offset++)
+    {
+        uint8_t y = (uint8_t)(y_row + row_offset);
+        uint32_t contribution;
+        io_display_mode2_pixel_t *pixel;
+
+        if ((coverage[row_offset] == 0U) || (y >= IO_DISPLAY_DRIVER_HEIGHT))
+        {
+            continue;
+        }
+
+        contribution = ((uint32_t)weight * coverage[row_offset] + 127U) / UINT8_MAX;
+        pixel = &g_mode2_pixels[((uint16_t)y * IO_DISPLAY_DRIVER_WIDTH) + x];
+        pixel->green += ((uint32_t)color->green * contribution) / UINT8_MAX;
+        pixel->red += ((uint32_t)color->red * contribution) / UINT8_MAX;
+        pixel->blue += ((uint32_t)color->blue * contribution) / UINT8_MAX;
+    }
+}
+
+/** @brief Draws independent MODE2 voice traces and blends only their RGB coverage. */
+static void io_display_renderer_draw_mode2_note(void)
+{
+    static const float layer_gain[IO_DISPLAY_MODE2_LAYER_COUNT] = {1.0f, 0.5f};
+    static const float layer_sigma[IO_DISPLAY_MODE2_LAYER_COUNT] = {0.22f, 0.16f};
+    const io_display_driver_color_t idle_color = {
+        IO_DISPLAY_MODE2_IDLE_WHITE_LEVEL, IO_DISPLAY_MODE2_IDLE_WHITE_LEVEL, IO_DISPLAY_MODE2_IDLE_WHITE_LEVEL};
+    const int32_t center_y_q8 = ((IO_DISPLAY_DRIVER_HEIGHT - 1U) * IO_DISPLAY_MODE2_SUBPIXEL_SCALE) / 2U;
+    float color_phase = (g_mode2_resonance_phase / IO_DISPLAY_MODE2_TWO_PI) * (float)IO_DISPLAY_MODE2_COLOR_COUNT;
+    uint8_t loudest = 0U;
+
+    memset(g_mode2_pixels, 0, sizeof(g_mode2_pixels));
+
+    for (uint8_t channel = 0U; channel < IO_DISPLAY_MIDI_CHANNEL_COUNT; channel++)
+    {
+        for (uint16_t note = 0U; note < IO_DISPLAY_NOTE_COUNT; note++)
+        {
+            const io_display_mode2_voice_t *voice = &g_mode2_voice[channel][note];
+            uint16_t weight;
+            float note_shape = (float)note / 127.0f;
+
+            if (voice->envelope == 0U)
+            {
+                continue;
+            }
+
+            if (voice->envelope > loudest)
+            {
+                loudest = voice->envelope;
+            }
+
+            weight = (uint16_t)(((uint16_t)voice->envelope * voice->velocity) / 127U);
+            for (uint8_t layer = 0U; (layer < IO_DISPLAY_MODE2_LAYER_COUNT) && (weight > 0U); layer++)
+            {
+                float period_count = g_mode2_period_presets[(voice->period_index + (layer * 2U)) % IO_DISPLAY_MODE2_PERIOD_COUNT];
+                float envelope_center = (0.5f + ((note_shape - 0.5f) * 0.3f) + ((float)layer * 0.08f)) * (float)IO_DISPLAY_DRIVER_WIDTH;
+                float sigma = layer_sigma[layer] * (float)IO_DISPLAY_DRIVER_WIDTH;
+                float swing = io_display_renderer_mode2_oscillation((uint8_t)(layer + 1U),
+                                                                    (note_shape * IO_DISPLAY_MODE2_TWO_PI) + ((float)layer * 1.3f));
+                float palette_base = (float)((voice->period_index * 2U) + ((uint16_t)channel * 3U) + (note >> 4U)) + ((float)layer * 2.7f);
+                uint16_t layer_weight = (uint16_t)((float)weight * layer_gain[layer]);
+
+                for (uint16_t x = 0U; x < IO_DISPLAY_DRIVER_WIDTH; x++)
+                {
+                    float distance = ((float)x + 0.5f) - envelope_center;
+                    float sample = io_display_renderer_mode2_sample(note, period_count, x) *
+                                   expf(-(distance * distance) / (2.0f * sigma * sigma)) * swing;
+                    float color_position = (((float)x * (float)IO_DISPLAY_MODE2_COLOR_COUNT) / (float)IO_DISPLAY_DRIVER_WIDTH) +
+                                           palette_base + color_phase;
+                    io_display_driver_color_t color = io_display_renderer_mode2_gradient_sample(color_position);
+
+                    io_display_renderer_accumulate_mode2_pixel(x, center_y_q8 - (int32_t)(sample * (float)center_y_q8), &color, layer_weight);
+                }
+            }
+        }
+    }
+
+    if (loudest < UINT8_MAX)
+    {
+        for (uint16_t x = 0U; x < IO_DISPLAY_DRIVER_WIDTH; x++)
+        {
+            io_display_renderer_accumulate_mode2_pixel(x, center_y_q8, &idle_color, (uint16_t)(UINT8_MAX - loudest));
+        }
+    }
+
+    for (uint8_t y = 0U; y < IO_DISPLAY_DRIVER_HEIGHT; y++)
+    {
+        for (uint16_t x = 0U; x < IO_DISPLAY_DRIVER_WIDTH; x++)
+        {
+            const io_display_mode2_pixel_t *center = &g_mode2_pixels[((uint16_t)y * IO_DISPLAY_DRIVER_WIDTH) + x];
+            const io_display_mode2_pixel_t *above = (y > 0U) ? (center - IO_DISPLAY_DRIVER_WIDTH) : center;
+            const io_display_mode2_pixel_t *below = (y < (IO_DISPLAY_DRIVER_HEIGHT - 1U)) ? (center + IO_DISPLAY_DRIVER_WIDTH) : center;
+            io_display_driver_color_t color;
+
+            color.green = (uint8_t)(io_display_renderer_soft_clip(((center->green * 18U) + (above->green + below->green)) / 20U) /
+                                    IO_DISPLAY_MODE2_BRIGHTNESS_DIVISOR);
+            color.red = (uint8_t)(io_display_renderer_soft_clip(((center->red * 18U) + (above->red + below->red)) / 20U) /
+                                  IO_DISPLAY_MODE2_BRIGHTNESS_DIVISOR);
+            color.blue = (uint8_t)(io_display_renderer_soft_clip(((center->blue * 18U) + (above->blue + below->blue)) / 20U) /
+                                   IO_DISPLAY_MODE2_BRIGHTNESS_DIVISOR);
+            io_display_driver_pixel((int16_t)x, y, &color);
         }
     }
 }
@@ -152,7 +561,12 @@ static void io_display_renderer_draw_note(io_display_driver_color_t *col_text)
 {
     uint32_t now_tick = HAL_GetTick();
 
-    io_display_renderer_update_note_animation();
+    if (g_animation_mode == IO_DISPLAY_ANIMATION_MODE_2)
+    {
+        io_display_renderer_draw_mode2_note();
+        (void)col_text;
+        return;
+    }
 
     for (uint16_t i = 0; i < IO_DISPLAY_NOTE_COUNT; i++)
     {
@@ -701,7 +1115,18 @@ static void io_display_renderer_draw_sequencer_graphics(domain_display_state_t s
  */
 static void io_display_renderer_draw_base_setting(io_display_driver_color_t *col_text)
 {
-    io_display_driver_string(2, 1, "GOTODFU", 7, col_text, 0);
+    if (g_setting_item == IO_DISPLAY_SETTING_ITEM_GOTODFU)
+    {
+        io_display_driver_string(2, 1, "GOTODFU", 7, col_text, 0);
+    }
+    else if (g_animation_mode == IO_DISPLAY_ANIMATION_MODE_2)
+    {
+        io_display_driver_string(2, 1, "ANIM M2", 7, col_text, 0);
+    }
+    else
+    {
+        io_display_driver_string(2, 1, "ANIM M1", 7, col_text, 0);
+    }
 }
 
 /**
@@ -1048,8 +1473,10 @@ void io_display_renderer_init(SPI_HandleTypeDef *hspi_neopixel)
     g_seqpara_channel = 0U;
     g_seqplay_mode = 0U;
     g_seqinput_target_bar = 0U;
+    g_setting_item = IO_DISPLAY_SETTING_ITEM_ANIMATION;
+    g_animation_mode = IO_DISPLAY_ANIMATION_MODE_1;
     g_boot_logo_start_tick = HAL_GetTick();
-    memset(g_note_anim, 0, sizeof(g_note_anim));
+    io_display_renderer_clear_note_state_data();
 }
 
 /**
@@ -1073,6 +1500,24 @@ void io_display_renderer_set_seq_playmode(uint8_t playmode)
 }
 
 /**
+ * @brief Sets the selected SETTING item and animation mode shown by the renderer.
+ *
+ * @param setting_item The currently selected SETTING item.
+ * @param animation_mode The selected MIDI note animation mode.
+ */
+void io_display_renderer_set_setting_view(io_display_setting_item_t setting_item, io_display_animation_mode_t animation_mode)
+{
+    g_setting_item = (setting_item == IO_DISPLAY_SETTING_ITEM_GOTODFU) ? IO_DISPLAY_SETTING_ITEM_GOTODFU : IO_DISPLAY_SETTING_ITEM_ANIMATION;
+    g_animation_mode = (animation_mode == IO_DISPLAY_ANIMATION_MODE_2) ? IO_DISPLAY_ANIMATION_MODE_2 : IO_DISPLAY_ANIMATION_MODE_1;
+}
+
+void io_display_renderer_reset_note_state(void)
+{
+    io_display_renderer_clear_note_state_data();
+    domain_display_model_clear_note_events();
+}
+
+/**
  * @brief Render the display based on the current model.
  *
  * @param model The display model containing the state and message.
@@ -1090,6 +1535,7 @@ void io_display_renderer_render(const domain_display_model_t *model)
         return;
     }
 
+    io_display_renderer_update_note_animation();
     io_display_driver_clear(&col_bg);
 
     elapsed = HAL_GetTick() - g_boot_logo_start_tick;

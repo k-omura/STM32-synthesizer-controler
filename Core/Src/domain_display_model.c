@@ -16,6 +16,7 @@ static domain_display_midi_context_t g_midi_context;
 static domain_display_midi_context_t g_note_event_queue[DOMAIN_DISPLAY_NOTE_EVENT_QUEUE_CAPACITY];
 static uint8_t g_note_event_write_pos;
 static uint8_t g_note_event_read_pos;
+static uint8_t g_note_event_overflow;
 
 /**
  * @brief Initializes the display model. This function sets up the initial state of the display model.
@@ -34,6 +35,7 @@ void domain_display_model_init(void)
     g_midi_context.external = 0;
     g_note_event_write_pos = 0U;
     g_note_event_read_pos = 0U;
+    g_note_event_overflow = 0U;
 }
 
 /**
@@ -120,6 +122,10 @@ void domain_display_model_set_midi_context(uint8_t midi_msg_type, uint8_t channe
             g_note_event_queue[g_note_event_write_pos] = g_midi_context;
             g_note_event_write_pos = next_write_pos;
         }
+        else
+        {
+            g_note_event_overflow = 1U;
+        }
     }
 }
 
@@ -143,4 +149,17 @@ uint8_t domain_display_model_pop_note_event(domain_display_midi_context_t *out_c
     *out_context = g_note_event_queue[g_note_event_read_pos];
     g_note_event_read_pos = (uint8_t)((g_note_event_read_pos + 1U) % DOMAIN_DISPLAY_NOTE_EVENT_QUEUE_CAPACITY);
     return 1U;
+}
+
+uint8_t domain_display_model_take_note_event_overflow(void)
+{
+    uint8_t overflow = g_note_event_overflow;
+    g_note_event_overflow = 0U;
+    return overflow;
+}
+
+void domain_display_model_clear_note_events(void)
+{
+    g_note_event_read_pos = g_note_event_write_pos;
+    g_note_event_overflow = 0U;
 }

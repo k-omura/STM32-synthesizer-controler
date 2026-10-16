@@ -131,6 +131,19 @@ y=7  ...............................B
 - `N`: ノート描画領域 (動的)
 - `B`: BLEピクセル
 
+### 7.3.1 MIDI NOTEアニメーション選択 (MODE1/MODE2実装済み)
+対象はFREEPLAYのNOTE画面で描画するNote On/Offイベントとする。CC/Program ChangeのMIDIIN表示には適用しない。
+
+- 初期値は `MODE1` とする。
+- `MODE1`: 現行動作。Note On (velocity>0) でノート位置を点灯し、同じx座標で縦方向へ広がるリングを描画する。リング長は `1+2*phase`、色はvelocityから算出する。Note Offでは点灯とリングを即時停止する。
+- `MODE2`: AI音声入力やSiriの音声入力中に見える共振波形をイメージし、NOTE描画領域全体 (`x=0..31`, `y=0..7`) に数式波形を描画する。波形は横スクロールしない。
+	- 各voice開始時に視覚周期数を `0.75/1.0/1.25/1.5/2.0` から巡回割当て、1つのvoiceを周期の異なる2レイヤー(振幅 1.0/0.5)で同時に描く。周期割当てはNote番号やMIDI周波数に対応させない。
+	- 各レイヤーは定在波 `sin(kx)*cos(ωt)` に画面中央付近で強いGaussian包絡(σ=0.22/0.16×幅)を掛ける。両端は自然に絞り、振幅が0を跨いで上下に振動する。振動の基本周期は約0.6秒で、2レイヤー目は2倍速。`noteNum`は位相と包絡中心の偏りに使い、周期数や発振周波数を変えない。
+	- 波形値は合算せず、各レイヤーのy位置を独立に決める。線はサブピクセルsmoothstepで画素に吸着させて細く描く。色はApple系の8色(blue/cyan/indigo/purple/pink/orange/magenta/violet)をx方向に連続補間し、共振phaseで色相を時間変化させる。重なるpixelはRGBを加算し、各成分はsoft clip(`255*(1-exp(-x/170))`)で高光部を滑らかに圧縮する。縦方向にのみ極めて弱いglow(中心90%/上下各約5%)を加え、白との混合は行わない。
+	- NoteOnは60msで立ち上げ、同一(channel,note)の重複NoteOnはheld countで管理する。
+	- MODE2のRGB出力は各成分を1/6に減光する。無音線は全voiceのenvelopeが最大でない間だけ `255-最大envelope` の重みで描画する。Note中は表示せず、全voiceが180msのreleaseで減衰すると輝度約11の白い水平線 (`y=3.5`中心) だけになり、共振phaseが止まる。
+- MIDIINのProgram Change名、CCラベル、値バーなどの表示とMIDI転送には影響しない。
+
 ### 7.4 METRONOME (`STM32SYNTH_DISPSTATE_METRONOME`)
 - 針:
 - `needlePos = (31 * bpmDiff / bpmtick)` (往復)
@@ -287,9 +300,12 @@ MIDIIN 代表表示:
 - chバー: 単一ch対象時は `y=7`, `x=2*ch`, `len=2`。`ALL` ミラー時は表示しない
 
 ### 7.8 SETTING (`STM32SYNTH_DISPSTATE_SETTING`)
-- target=0 (現実装): `GOTODFU`
+- 現行実装: 項目は `ANIMATION` と `GOTODFU`。入場時は `ANIMATION` を選択する。
 - フォント: 3x5
 - 開始座標: `(2,1)`
+- RE2回転で `ANIMATION -> GOTODFU -> ANIMATION` と選択項目を巡回する。
+- `ANIMATION` 選択中は `ANIM M1` / `ANIM M2` を表示し、RE2ボタン短押しで `MODE1` / `MODE2` を切り替える。選択値はRAM内に保持し、起動時は `MODE1`。
+- `GOTODFU` 選択中のRE2ボタン短押しは現行のDFU遷移を実行する。
 
 ## 8. ロータリーエンコーダ操作 -> 表示仕様
 
@@ -359,8 +375,10 @@ SEQUENCER_PLAY:
 - 表示: `playmode>0` のとき全幅 xbar + バンク識別ドット + 下部バー帯 + `SEQ_PLAY` フレーム
 
 SETTING:
-- ボタン: `cnt_setting_execute()` -> `GOTODFU` 実行
-- 表示: `GOTODFU` at `(2,1)`
+- 入場時は `ANIMATION` を選択し、RE2回転で `ANIMATION` / `GOTODFU` を巡回する。
+- `ANIMATION` 選択中のRE2短押しで `MODE1 <-> MODE2` を切り替える。
+- `GOTODFU` 選択中のRE2短押しは従来どおりDFUへ遷移する。
+- 表示: `GOTODFU` または `ANIM M1` / `ANIM M2` at `(2,1)`
 
 ## 8.6 RE操作時系列 (入力 -> 送信 -> 表示)
 
@@ -496,7 +514,7 @@ y7 ........
 - SEQUENCER一時文字: `(8,1)`
 - SEQUENCER_PLAY overlay text: `(8,1)`
 - CHANNEL文字列: `(2,1)`
-- SETTING `GOTODFU`: `(2,1)`
+- SETTING `GOTODFU` / `ANIM M1` / `ANIM M2`: `(2,1)`
 - MIDIIN Program名: `(4,1)`
 - MIDIIN CC/イベント文字列: `(2,1)`
 
@@ -513,6 +531,7 @@ y7 ........
 
 ## 13. 網羅チェック結果
 - 表示ステート (`HELLO/MODESEL/NOTE/METRONOME/SEQUENCER_PARA/SEQUENCER_PROGRAM/SEQUENCER_REC/SEQUENCER_PLAY/CHANNEL/MIDIIN/SETTING`) の描画仕様を記載済み。
+- MIDI NOTE演出の `MODE1` / `MODE2` とSETTINGでの切り替えを記載。
 - RE1/RE2 のボタン・回転について、MODE/CHANNEL/SEQUENCER系に加えて VOLUME/PROGRAM/REVERB の表示仕様を記載済み。
 - 楽器変更 (Program Change) は、文字列ソース・開始座標・内部/外部入力でのchバー差分まで記載済み。
 - 主要CC (VOL/RVB/BNK/PAN/EXP) の番号・表示ラベル・表示形式を記載済み。

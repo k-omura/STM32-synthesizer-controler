@@ -21,6 +21,11 @@ typedef enum
 } io_system_control_result_t;
 
 /**
+ * Output the BLE initial-mode switch pulse.
+ */
+void io_system_control_ble_init_mode_pulse(void);
+
+/**
  * Jump to DFU bootloader mode
  * Disables all interrupts and jumps to system memory
  * This function does not return

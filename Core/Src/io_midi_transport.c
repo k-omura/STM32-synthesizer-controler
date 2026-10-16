@@ -19,6 +19,7 @@ static uint16_t g_tx_wpos;
 static uint16_t g_tx_rpos;
 static uint16_t g_tx_count;
 static SPI_HandleTypeDef *g_hspi_tx;
+static uint8_t g_tx_dma_packet[4];
 
 /**
  * @brief Initializes the MIDI transport module.
@@ -33,6 +34,7 @@ void io_midi_transport_init(void)
     g_tx_rpos = 0;
     g_tx_count = 0;
     g_hspi_tx = 0;
+    memset(g_tx_dma_packet, 0, sizeof(g_tx_dma_packet));
 }
 
 /**
@@ -124,7 +126,8 @@ void io_midi_transport_service(void)
         return;
     }
 
-    if (HAL_SPI_Transmit_DMA(g_hspi_tx, g_tx_queue[g_tx_rpos], 4) != HAL_OK)
+    memcpy(g_tx_dma_packet, g_tx_queue[g_tx_rpos], sizeof(g_tx_dma_packet));
+    if (HAL_SPI_Transmit_DMA(g_hspi_tx, g_tx_dma_packet, sizeof(g_tx_dma_packet)) != HAL_OK)
     {
         return;
     }

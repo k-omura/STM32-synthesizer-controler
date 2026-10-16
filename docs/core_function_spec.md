@@ -23,7 +23,7 @@
 ### 3.1 外部インタフェース
 - USB
 	- USB Hostスタックを起動し、メインループで `MIDI_Application()` と `MX_USB_HOST_Process()` を呼ぶ。
-	- USB MIDI受信データはUSB_HOST配下で解析し、`io_midi_transport_send_packet()` を介してSPI3送信キューへ投入する。
+	- USB MIDI受信データはUSB_HOST配下で解析し、`io_midi_transport_push_rx_packet()` を介してRXキューへ投入する。
 - SPI
 	- SPI5: MIDI入力受信(スレーブ、RX専用、DMA受信)
 		- 4バイトUSB-MIDI風パケットをDMAで受信し、完了コールバックでリングバッファへ格納。
@@ -95,26 +95,26 @@
 ### 5.4 Domain層
 - `domain_mode_def` がモード定義と基本表示を管理する。
 - `domain_sequencer_engine` がテンポ、進行、録音、再生、ミュートの正本を保持する。
-- `domain_display_model` がRendererへ渡す表示状態とMIDI表示コンテキストを保持する。
+- `domain_display_model` がRendererへ渡す表示状態とMIDI表示コンテキストを保持する。Note On/Offは単一コンテキストとは別のイベントFIFOで順序を保持する。
 
 ### 5.5 I/O層
 - `io_midi_transport`: SPI5割り込み受信キューとSPI3 DMA送信キューを管理する。
 - `io_display_renderer`: Display Modelを8x32描画命令へ変換する。
 - `io_display_driver`: フレームバッファをLEDシリアルデータへ変換しSPI2 DMA送信する。
-- `io_system_control`: 割り込みとクロックを停止してSystem MemoryのDFUへ遷移する。遷移前のシンセサイザ向けGOTODFU MIDI送信は `app_runtime` が実行する。
+	- `io_system_control`: BLE初期モード切替パルスを出力し、割り込みとクロックを停止してSystem MemoryのDFUへ遷移する。遷移前のシンセサイザ向けGOTODFU MIDI送信は `app_runtime` が実行する。
 
 ## 6. データフロー仕様
 
 ### 6.1 MIDI入力からシンセ出力まで
 1. SPI5 DMA受信完了割り込みで4バイト受信。
-2. 受信データを `io_midi_transport_push_rx_packet()` でSPSC受信キューへ書込。
+2. 受信データを `io_midi_transport_push_rx_packet()` でRXキューへ書込。SPI5割り込みとUSB Host処理が共有するため、書込み区間を排他する。
 3. DMA受信を再アーム。
 4. メインループの `app_runtime_step()` が受信キューを読出す。
 5. MIDIイベント解析、表示更新、シーケンサ記録、必要なチャンネル置換を実施する。
 6. `io_midi_transport_send_packet()` で送信キューへ投入する。
 7. `io_midi_transport_service()` がSPI3 DMAでシンセへ送信する。
 
-USB MIDI入力は `USBH_MIDI_ReceiveCallback()` で4バイト単位に解析し、対応するChannel Voice Messageを同じSPI3送信キューへ直接投入する。
+USB MIDI入力は `USBH_MIDI_ReceiveCallback()` で実受信長を基準に4バイト単位で解析し、対応するChannel Voice MessageをRXキューへ投入する。メインループの `app_runtime_process_rx_midi()` が表示更新とSPI3送信を行う。Note On/Off表示イベントは表示モデル内のFIFOで保持し、複数イベントの上書きを防ぐ。
 
 ### 6.2 表示更新
 - `domain_display_model` が現在の基本表示、オーバーレイ、MIDI表示コンテキストを保持する。
@@ -143,18 +143,31 @@ USB MIDI入力は `USBH_MIDI_ReceiveCallback()` で4バイト単位に解析し�
 
 | モード | 表示状態(base_code) | 主な機能 | 主な操作(ロータリーエンコーダ) |
 |---|---|---|---|
-| FREEPLAY | NOTE | Note On/Off可視化(ノート位置+残光)。 | RE2回転でCHANNEL/REVERBを操作。RE2ボタンでCHANNEL/REVERB切替。 |
+| FREEPLAY | NOTE | SETTINGでMODE1/MODE2を選択可能。MODE1は縦リング、MODE2は多色波形を表示し、同一channel/noteの重複NoteOnをカウント集約する。 | RE2回転でCHANNEL/REVERBを操作。RE2ボタンでCHANNEL/REVERB切替。 |
 | METRONOME | METRONOME | BPM周期でドラムノート(37)発音、針アニメーションとBPM表示。 | RE2回転でBPM変更(30-360, step=5)。RE2ボタンでタップテンポ。 |
 | SEQUENCER_PARA | SEQUENCER_PARA | シーケンサ基本パラメータ編集。 | RE2ボタンで項目巡回(BPM/BEAT/BAR/CHANNEL/METRONOME)。RE2回転で選択項目値を変更。 |
 | SEQUENCER_PROGRAM | SEQUENCER_PROGRAM | RE2でノートを手入力して録音。 | RE2回転で入力NoteNumを変更(変更時にNoteOnし100ms後にNoteOff)。RE2押下でNoteOn、RE2離上でNoteOff(押下/離上タイミングで録音)。 |
 | SEQUENCER_REC | SEQUENCER_REC | 録音内容の編集。 | RE2回転で対象バー/機能選択。RE2ボタンでUNDO(最終レイヤ削除)またはCH CLEAR(選択チャンネル削除)。 |
 | SEQUENCER_PLAY | SEQUENCER_PLAY | 再生カーソル表示、再生/停止、チャンネルミュート。 | RE2回転で再生制御選択(0:PLAY/STOP, 1-16:MUTE CH)。RE2ボタンで選択機能を実行。 |
 
+
+ANIMATION選択の動作 (実装済み):
+- 入場時は `ANIMATION` を選択し、RE2回転で `ANIMATION` / `GOTODFU` を巡回する。
+- `ANIMATION` 選択中のRE2短押しで `MODE1` / `MODE2` を切り替える。選択値はRAM内に保持し、起動時は `MODE1`。
+- `GOTODFU` 選択中のRE2短押しは既存のDFU遷移を実行する。
+
+MODE2共振波形:
+- アクティブな(channel,note)ごとに波形レイヤーを持ち、同じ組み合わせのNoteOnはheld countに集約する。NoteOffでcountが0になると180msで減衰する。
+- voice開始順に0.75/1.0/1.25/1.5/2.0周期の視覚presetを割り当て、1 voiceを周期の異なう2レイヤーで同時に描く。周期presetはMIDI pitchに対応させず、`noteNum`は位相と包絡中心の偏りに使う。
+- 各レイヤーは中心が強いGaussian包絡付きの定在波 `sin(kx)*cos(ωt)` とし、振幅が0を跨いで上下に振動する(基本周期約0.6秒)。線はsmoothstepで画素に吸着させて細く描く。Apple系8色RGBグラデーションは時間変化し、重なりは波形値ではなくpixel RGBを加算してsoft clipで圧縮する。縦方向にのみ極めて弱いglowを加え、白との混合はしない。
+- MODE2はRGB各成分を1/6に減光する。NoteOnは60msで立ち上がる。Note中はidle線を表示せず、全voiceが180msのreleaseで減衰すると輝度約11の白い水平線へ戻る。
+- 対象はFREEPLAYのNOTE表示に限り、CC/Program ChangeのMIDIIN表示とMIDI転送は変更しない。
+
 補足(SEQUENCER_PLAY overlay):
 - `seqpara_playmode=0` では `PLAY` 文字は表示しない。
 - `seqpara_playmode>0` のときは、`MUTE%u` 文字を表示せず `xbar(x=0, y=((playmode-1)%8), len=32)` を表示する。
 - `playmode` が `1..8` か `9..16` かは、区切り線左(`x=7`)の識別ドット(`y=0` / `y=1`)で示す。
-| SETTING | SETTING | 設定実行。現状はDFU遷移のみ。 | RE2ボタンで実行。現在の項目は GOTODFU。実行時にシンセサイザへ `CC119, value=100` をSPI3送信した後、ローカルもDFUへ遷移する。 |
+| SETTING | SETTING | ANIMATION選択とGOTODFU実行。 | 入場時はANIMATIONを選択。RE2回転でANIMATION/GOTODFUを巡回し、ANIMATION短押しでMODE1/MODE2を切り替える。GOTODFU短押しで `CC119, value=100` をSPI3送信後、ローカルDFUへ遷移する。 |
 
 補足(シーケンサのメトロノーム):
 - シーケンサの初期状態は `play=1` とし、`SEQUENCER_PARA` 表示の初期アイコンとメトロノーム動作を一致させる。

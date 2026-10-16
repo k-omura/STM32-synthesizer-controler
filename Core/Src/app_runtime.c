@@ -94,7 +94,8 @@ typedef struct
     uint16_t seqpara_sel_channel;
     uint16_t seqpara_metronome;
     uint16_t seqpara_playmode;
-    uint16_t setting;
+    io_display_setting_item_t setting_item;
+    io_display_animation_mode_t animation_mode;
 } app_mode_config_state_t;
 
 typedef struct
@@ -269,7 +270,8 @@ static void app_runtime_reset_default_state(void)
     g_mode_cfg.seqpara_sel_channel = 0;
     g_mode_cfg.seqpara_metronome = 1;
     g_mode_cfg.seqpara_playmode = 0;
-    g_mode_cfg.setting = 0;
+    g_mode_cfg.setting_item = IO_DISPLAY_SETTING_ITEM_ANIMATION;
+    g_mode_cfg.animation_mode = IO_DISPLAY_ANIMATION_MODE_1;
     g_overlay_expire_tick = 0;
     g_seqinput_rec_in_bar = 0U;
     g_seqinput_last_bar = 0U;
@@ -286,6 +288,11 @@ static void app_runtime_reset_default_state(void)
         g_volume_before_mute[channel] = g_midi_ctrl.volume;
     }
     g_ctx.current_node = app_runtime_re1_ctrl_to_node(g_re1_ctrl);
+}
+
+static void app_runtime_sync_setting_view(void)
+{
+    io_display_renderer_set_setting_view(g_mode_cfg.setting_item, g_mode_cfg.animation_mode);
 }
 
 static uint8_t app_runtime_handle_seqpara_rotate(const app_event_t *ev)
@@ -413,6 +420,27 @@ static void app_runtime_apply_tap_tempo(uint32_t now_tick)
 
 static uint8_t app_runtime_dispatch_re2_rotate_modeparam(const app_event_t *ev, uint8_t effective_mode)
 {
+    if (effective_mode == IO_MIDI_MODE_STATE_SETTING)
+    {
+        int32_t next_item;
+
+        if (ev->delta == 0)
+        {
+            return 1U;
+        }
+
+        next_item = ((int32_t)g_mode_cfg.setting_item + (int32_t)ev->delta) % (int32_t)IO_DISPLAY_SETTING_ITEM_COUNT;
+        if (next_item < 0)
+        {
+            next_item += (int32_t)IO_DISPLAY_SETTING_ITEM_COUNT;
+        }
+        g_mode_cfg.setting_item = (io_display_setting_item_t)next_item;
+        app_runtime_sync_setting_view();
+        g_overlay_expire_tick = 0U;
+        domain_display_model_set_state(DOMAIN_DISPLAY_SETTING, 0);
+        return 1U;
+    }
+
     if (effective_mode == IO_MIDI_MODE_STATE_METRONOME)
     {
         g_mode_cfg.metronome_bpm = app_runtime_clamp_add_u16(g_mode_cfg.metronome_bpm, ev->delta, IO_MIDI_DEFAULT_BPM_MIN, IO_MIDI_DEFAULT_BPM_MAX, APP_BPM_STEP);
@@ -1299,8 +1327,23 @@ static void app_runtime_handle_cmd_mode_change(const app_command_t *cmd)
         app_runtime_send_all_notes_off();
     }
 
+    if ((prev_mode == IO_MIDI_MODE_STATE_FREEPLAY) &&
+        (cmd->payload.mode != IO_MIDI_MODE_STATE_FREEPLAY))
+    {
+        io_display_renderer_reset_note_state();
+    }
+
     g_current_mode = cmd->payload.mode;
     g_re1_mode_select = g_current_mode;
+
+    if ((g_current_mode == IO_MIDI_MODE_STATE_SETTING) &&
+        (prev_mode != IO_MIDI_MODE_STATE_SETTING))
+    {
+        g_mode_cfg.setting_item = IO_DISPLAY_SETTING_ITEM_ANIMATION;
+        g_overlay_expire_tick = 0U;
+        app_runtime_sync_setting_view();
+        app_runtime_restore_base_display();
+    }
 
     if (app_runtime_mode_supports_param_edit(g_current_mode) == 0U)
     {
@@ -1419,6 +1462,7 @@ void app_runtime_start(void)
         g_ctx.current_mode = def->mode_id;
     }
 
+    app_runtime_sync_setting_view();
     app_runtime_restore_base_display();
 
     /* Startup behavior: initialize synth-side mode control state. */
@@ -1601,7 +1645,14 @@ static uint8_t app_runtime_handle_re2_button_special_mode(const app_event_t *ev,
 
     if (effective_mode == IO_MIDI_MODE_STATE_SETTING)
     {
-        if (g_mode_cfg.setting == 0U)
+        if (g_mode_cfg.setting_item == IO_DISPLAY_SETTING_ITEM_ANIMATION)
+        {
+            g_mode_cfg.animation_mode = (g_mode_cfg.animation_mode == IO_DISPLAY_ANIMATION_MODE_1) ? IO_DISPLAY_ANIMATION_MODE_2 : IO_DISPLAY_ANIMATION_MODE_1;
+            app_runtime_sync_setting_view();
+            g_overlay_expire_tick = 0U;
+            domain_display_model_set_state(DOMAIN_DISPLAY_SETTING, 0);
+        }
+        else if (g_mode_cfg.setting_item == IO_DISPLAY_SETTING_ITEM_GOTODFU)
         {
             app_runtime_show_overlay(DOMAIN_OVERLAY_SETTING, 0U, ev->tick);
             app_midi_modeControl(IO_MIDI_MODECONTROL_GOTODFU);

@@ -11,7 +11,6 @@
 - 追加モード容易化と遷移階層可変化の設計
 
 ### 2.2 非対象
-- USB_HOST ライブラリ内部改修
 - HAL/CubeMX生成方針の変更
 - 実行速度最適化を主目的とする改修
 
@@ -132,11 +131,17 @@ Core/
 - 責務
 	- 表示モデルからフレーム生成
 	- ハード依存送信のみ担当
+	- Note On/OffイベントをFIFOから順序どおり適用
+	- MODE1はNote Onでノート位置と縦リングを表示し、Note Offで即時停止する。MODE2は(channel,note)ごとに波形レイヤーを持ち、同一キーのNoteOnはheld countへ集約する。
+	- MODE2はvoice開始順に0.75/1.0/1.25/1.5/2.0周期の視覚presetを割り当て、1 voiceを周期の異なう2レイヤーのGaussian包絡付き定在波 `sin(kx)*cos(ωt)` で描く。`noteNum`は位相と包絡中心の偏りに使い、MIDI pitchとは対応させない。波形値は合算せず、smoothstep AAで細く描いたpixel RGBを加算してsoft clipで圧縮し、縦方向にだけ極めて弱いglowを加える。
+	- RGB gradientはApple系8色を時間変化させ、出力RGB各成分を1/6に減光する。60ms attack/180ms releaseを使い、Note中はidle線を出さず、全voiceが減衰すると輝度約11の静止白線へ戻す。
+	- Note On/Offイベントはrenderごとにboot logo/overlay判定前にFIFOから消費する。FIFO overflow時とFREEPLAY離脱時はNote表示状態をresetし、voiceの残留を防ぐ。
 
 ### 7.8 io_midi_transport
 - 責務
 	- 4byte MIDIパケットの入出力
 	- RX/TXバッファ管理
+	- USB MIDIとSPI MIDIの受信パケットをRXキューで受け付ける
 
 ## 8. データモデル
 
